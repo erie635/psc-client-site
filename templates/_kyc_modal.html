@@ -1,0 +1,174 @@
+﻿<!-- BEGIN PSC KYC MODAL -->
+<div id="pscKycBackdrop" style="display:none;position:fixed;inset:0;background:rgba(15,23,42,.55);z-index:9998;align-items:center;justify-content:center;padding:16px;">
+  <div style="background:#fff;border-radius:14px;max-width:520px;width:100%;max-height:90vh;overflow:auto;box-shadow:0 20px 60px rgba(0,0,0,.3);">
+    <div style="padding:18px 22px;border-bottom:1px solid #e5e7eb;display:flex;justify-content:space-between;align-items:center;">
+      <h3 style="margin:0;color:#0f172a;font-size:1.15rem;">Verify your identity (KYC)</h3>
+      <button id="pscKycClose" style="background:none;border:none;font-size:1.5rem;color:#64748b;cursor:pointer;line-height:1;">&times;</button>
+    </div>
+
+    <div style="padding:18px 22px;">
+      <p style="color:#475569;font-size:.9rem;margin:0 0 14px;">
+        To withdraw money, we need to verify who you are. This is a one-time step.
+      </p>
+
+      <div id="pscKycError" style="display:none;background:#fef2f2;border:1px solid #fecaca;color:#b91c1c;padding:10px 12px;border-radius:8px;font-size:.88rem;margin-bottom:12px;"></div>
+
+      <div style="display:grid;gap:10px;">
+        <label style="font-size:.82rem;color:#334155;font-weight:600;">Full name (as on ID)</label>
+        <input id="pscKycName" type="text" style="padding:10px;border:1px solid #cbd5e1;border-radius:8px;">
+
+        <label style="font-size:.82rem;color:#334155;font-weight:600;">Phone number</label>
+        <input id="pscKycPhone" type="text" placeholder="07XXXXXXXX" style="padding:10px;border:1px solid #cbd5e1;border-radius:8px;">
+
+        <label style="font-size:.82rem;color:#334155;font-weight:600;">Date of birth</label>
+        <input id="pscKycDob" type="date" style="padding:10px;border:1px solid #cbd5e1;border-radius:8px;">
+
+        <label style="font-size:.82rem;color:#334155;font-weight:600;">ID type</label>
+        <select id="pscKycIdType" style="padding:10px;border:1px solid #cbd5e1;border-radius:8px;">
+          <option value="national_id">National ID</option>
+          <option value="passport">Passport</option>
+          <option value="drivers_license">Driver's License</option>
+          <option value="huduma_namba">Huduma Namba</option>
+        </select>
+
+        <label style="font-size:.82rem;color:#334155;font-weight:600;">ID number</label>
+        <input id="pscKycIdNumber" type="text" style="padding:10px;border:1px solid #cbd5e1;border-radius:8px;">
+
+        <label style="font-size:.82rem;color:#334155;font-weight:600;">Address</label>
+        <input id="pscKycAddress" type="text" style="padding:10px;border:1px solid #cbd5e1;border-radius:8px;">
+      </div>
+
+      <div style="display:flex;gap:10px;margin-top:16px;">
+        <button id="pscKycSubmit" style="flex:1;padding:12px;background:linear-gradient(135deg,#667eea,#764ba2);color:#fff;border:0;border-radius:9px;font-weight:700;cursor:pointer;">
+          Submit for verification
+        </button>
+        <button id="pscKycCancel" style="padding:12px 18px;background:#f1f5f9;color:#334155;border:0;border-radius:9px;font-weight:600;cursor:pointer;">
+          Cancel
+        </button>
+      </div>
+
+      <div id="pscKycStatus" style="margin-top:12px;font-size:.88rem;"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+(function(){
+  "use strict";
+
+  function el(id){ return document.getElementById(id); }
+  function show(id){ var e=el(id); if(e) e.style.display="block"; }
+  function hide(id){ var e=el(id); if(e) e.style.display="none"; }
+  function setBackdrop(on){
+    var b = el("pscKycBackdrop");
+    if (!b) return;
+    b.style.display = on ? "flex" : "none";
+  }
+
+  window.pscOpenKycModal = function(callback){
+    window.__pscKycCallback = (typeof callback === "function") ? callback : null;
+
+    var meName = "";
+    var mePhone = "";
+    try {
+      if (typeof currentUser !== "undefined" && currentUser) {
+        meName = currentUser.name || "";
+        mePhone = currentUser.phone || "";
+      }
+    } catch(e) {}
+
+    if (el("pscKycName")  && !el("pscKycName").value)  el("pscKycName").value  = meName;
+    if (el("pscKycPhone") && !el("pscKycPhone").value) el("pscKycPhone").value = mePhone;
+
+    hide("pscKycError");
+    el("pscKycStatus").textContent = "";
+    setBackdrop(true);
+  };
+
+  function closeModal(result){
+    setBackdrop(false);
+    var cb = window.__pscKycCallback;
+    window.__pscKycCallback = null;
+    if (typeof cb === "function") {
+      try { cb(result); } catch(e) { console.warn("[KYC] callback error", e); }
+    }
+  }
+
+  function currentWallet(){
+    try { if (typeof clientWallet !== "undefined" && clientWallet) return clientWallet; } catch(e) {}
+    try { if (window.__pscWallet) return window.__pscWallet; } catch(e) {}
+    try { return localStorage.getItem("psc_wallet") || ""; } catch(e) {}
+    return "";
+  }
+
+  function submitKyc(){
+    var payload = {
+      wallet:    currentWallet(),
+      full_name: (el("pscKycName").value || "").trim(),
+      phone:     (el("pscKycPhone").value || "").trim(),
+      dob:       (el("pscKycDob").value || "").trim(),
+      id_type:   (el("pscKycIdType").value || "").trim(),
+      id_number: (el("pscKycIdNumber").value || "").trim(),
+      address:   (el("pscKycAddress").value || "").trim()
+    };
+
+    var err = el("pscKycError");
+    err.style.display = "none";
+    err.textContent = "";
+
+    if (!payload.wallet) {
+      err.textContent = "Please log in first."; err.style.display = "block"; return;
+    }
+    if (!payload.full_name || payload.full_name.length < 3) {
+      err.textContent = "Enter your full name."; err.style.display = "block"; return;
+    }
+    if (!payload.dob) {
+      err.textContent = "Enter your date of birth."; err.style.display = "block"; return;
+    }
+    if (!payload.id_number || payload.id_number.length < 5) {
+      err.textContent = "Enter a valid ID number."; err.style.display = "block"; return;
+    }
+
+    var btn = el("pscKycSubmit");
+    btn.disabled = true; btn.textContent = "Submitting\u2026";
+    el("pscKycStatus").textContent = "";
+
+    fetch("/api/kyc/submit", {
+      method: "POST",
+      credentials: "same-origin",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify(payload)
+    })
+    .then(function(r){ return r.json().then(function(j){ return {ok:r.ok, body:j}; }); })
+    .then(function(res){
+      btn.disabled = false; btn.textContent = "Submit for verification";
+      var d = res.body || {};
+      if (d.success && d.status === "VERIFIED") {
+        el("pscKycStatus").style.color = "#166534";
+        el("pscKycStatus").textContent = "Verified. Continuing\u2026";
+        setTimeout(function(){ closeModal(true); }, 500);
+        return;
+      }
+      err.textContent = d.message || "KYC failed.";
+      err.style.display = "block";
+    })
+    .catch(function(e){
+      btn.disabled = false; btn.textContent = "Submit for verification";
+      err.textContent = "Network error: " + e;
+      err.style.display = "block";
+    });
+  }
+
+  document.addEventListener("DOMContentLoaded", function(){
+    var s = el("pscKycSubmit"); if (s) s.addEventListener("click", submitKyc);
+    var c = el("pscKycCancel"); if (c) c.addEventListener("click", function(){ closeModal(false); });
+    var x = el("pscKycClose");  if (x) x.addEventListener("click", function(){ closeModal(false); });
+    var bd = el("pscKycBackdrop");
+    if (bd) bd.addEventListener("click", function(e){ if (e.target === bd) closeModal(false); });
+    document.addEventListener("keydown", function(e){
+      if (e.key === "Escape" && bd && bd.style.display === "flex") closeModal(false);
+    });
+  });
+})();
+</script>
+<!-- END PSC KYC MODAL -->

@@ -1,0 +1,581 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Sell on PSC - Pulse Shopping Coin</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #f5f6fa; min-height: 100vh; }
+        .topbar {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white; padding: 16px 30px;
+            display: flex; justify-content: space-between; align-items: center;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+            flex-wrap: wrap; gap: 12px;
+        }
+        .topbar h1 { font-size: 1.3rem; cursor: pointer; }
+        .topbar .back-link {
+            background: rgba(255,255,255,0.18);
+            border: 1px solid rgba(255,255,255,0.35);
+            color: white; padding: 8px 16px; border-radius: 20px;
+            text-decoration: none; font-size: 0.9rem; font-weight: 600;
+        }
+        .topbar .back-link:hover { background: rgba(255,255,255,0.3); }
+        .container { max-width: 900px; margin: 0 auto; padding: 30px 20px; }
+        .hero-sell { text-align: center; padding: 20px 0 30px; }
+        .hero-sell h2 { font-size: 2rem; color: #1a1a2e; margin-bottom: 8px; }
+        .hero-sell p { color: #666; font-size: 1rem; max-width: 620px; margin: 0 auto; }
+        .card { background: white; border-radius: 14px; padding: 26px; margin-bottom: 20px; box-shadow: 0 2px 8px rgba(0,0,0,0.06); }
+        .card h3 { color: #1a1a2e; margin-bottom: 16px; font-size: 1.15rem; }
+        .tabs { display: flex; gap: 8px; margin-bottom: 22px; border-bottom: 2px solid #f0f0f8; }
+        .tab {
+            padding: 10px 22px; cursor: pointer; font-weight: 600;
+            color: #666; border-bottom: 3px solid transparent;
+            margin-bottom: -2px; font-size: 0.95rem;
+        }
+        .tab.active { color: #667eea; border-bottom-color: #667eea; }
+        .field { margin-bottom: 14px; }
+        .field label { display: block; font-size: 0.85rem; font-weight: 600; color: #444; margin-bottom: 5px; }
+        .field input, .field textarea, .field select {
+            width: 100%; padding: 11px 14px; border: 2px solid #e5e7eb;
+            border-radius: 8px; font-size: 0.95rem; font-family: inherit;
+        }
+        .field input:focus, .field textarea:focus, .field select:focus { outline: none; border-color: #667eea; }
+        .field textarea { min-height: 80px; resize: vertical; }
+        .primary-btn {
+            width: 100%; padding: 13px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white; border: none; border-radius: 9px;
+            font-size: 1rem; font-weight: bold; cursor: pointer; margin-top: 6px;
+        }
+        .primary-btn:hover { opacity: 0.93; }
+        .primary-btn:disabled { opacity: 0.6; cursor: not-allowed; }
+        .error-msg {
+            color: #dc3545; font-size: 0.88rem; background: #fef2f2;
+            padding: 10px 14px; border-radius: 8px; margin-bottom: 12px;
+            border-left: 3px solid #dc3545;
+        }
+        .success-msg {
+            color: #065f46; font-size: 0.88rem; background: #ecfdf5;
+            padding: 10px 14px; border-radius: 8px; margin-bottom: 12px;
+            border-left: 3px solid #10b981;
+        }
+        .row2 { display: flex; gap: 14px; }
+        .row2 > .field { flex: 1; }
+        .dashboard-header {
+            display: flex; justify-content: space-between; align-items: center;
+            margin-bottom: 20px; flex-wrap: wrap; gap: 12px;
+        }
+        .dashboard-header .welcome { font-size: 1.1rem; color: #1a1a2e; }
+        .dashboard-header .welcome b { color: #667eea; }
+        .logout-btn {
+            padding: 8px 18px; background: #fef2f2; color: #dc3545;
+            border: 1px solid #fecaca; border-radius: 8px;
+            cursor: pointer; font-weight: 600; font-size: 0.88rem;
+        }
+        .logout-btn:hover { background: #fee2e2; }
+        .items-list { display: grid; gap: 12px; margin-top: 12px; }
+        .item-row {
+            display: flex; gap: 14px; align-items: center;
+            padding: 12px; border: 1px solid #e5e7eb;
+            border-radius: 10px; background: #fafbfc;
+        }
+        .item-row img {
+            width: 60px; height: 60px; object-fit: cover;
+            border-radius: 8px; background: #f3f4f6;
+        }
+        .item-row .no-img {
+            width: 60px; height: 60px; display: flex;
+            align-items: center; justify-content: center;
+            background: #f3f4f6; border-radius: 8px;
+            color: #cbd5e1; font-size: 1.5rem;
+        }
+        .item-row .info { flex: 1; min-width: 0; }
+        .item-row .info .name {
+            font-weight: 700; color: #1a1a2e; margin-bottom: 3px;
+            white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+        }
+        .item-row .info .meta { font-size: 0.85rem; color: #64748b; }
+        .item-row .info .price { color: #28a745; font-weight: 700; font-size: 0.95rem; margin-top: 3px; }
+        .item-row .delete-btn {
+            background: #fef2f2; color: #dc3545; border: 1px solid #fecaca;
+            padding: 6px 12px; border-radius: 6px; cursor: pointer;
+            font-size: 0.82rem; font-weight: 600;
+        }
+        .item-row .delete-btn:hover { background: #fee2e2; }
+        .empty-items { text-align: center; padding: 30px 20px; color: #94a3b8; font-size: 0.95rem; }
+        .img-tabs { display: flex; gap: 6px; margin-bottom: 10px; flex-wrap: wrap; }
+        .img-tab {
+            padding: 8px 16px; cursor: pointer; font-weight: 600;
+            font-size: 0.85rem; border: 1px solid #e5e7eb;
+            background: #f8fafc; color: #475569; border-radius: 6px;
+        }
+        .img-tab:hover { background: #eef2ff; }
+        .img-tab.active { background: #667eea; color: white; border-color: #667eea; }
+        .img-tab-body input[type="file"] {
+            width: 100%; padding: 12px; border: 2px dashed #cbd5e1;
+            border-radius: 8px; background: #f8fafc; font-family: inherit;
+            cursor: pointer;
+        }
+        .img-tab-body input[type="file"]:hover { border-color: #667eea; background: #f0f4ff; }
+        .img-tab-body input[type="text"] {
+            width: 100%; padding: 11px 14px; border: 2px solid #e5e7eb;
+            border-radius: 8px; font-size: 0.95rem; font-family: inherit;
+        }
+        .img-tab-body input[type="text"]:focus { outline: none; border-color: #667eea; }
+        .info-box {
+            background: #eff6ff; border-left: 4px solid #3b82f6;
+            padding: 12px 16px; border-radius: 8px; margin-bottom: 18px;
+            font-size: 0.9rem; color: #1e40af;
+        }
+        @media (max-width: 640px) {
+            .row2 { flex-direction: column; gap: 0; }
+            .topbar { padding: 14px 18px; }
+            .topbar h1 { font-size: 1.05rem; }
+            .container { padding: 20px 14px; }
+            .hero-sell h2 { font-size: 1.5rem; }
+        }
+    </style>
+</head>
+<body>
+    <div class="topbar">
+        <h1 onclick="window.location.href='/'">PSC - Pulse Shopping Coin</h1>
+        <a href="/" class="back-link">&larr; Back to Shop</a>
+    </div>
+
+    <div class="container">
+        <div class="hero-sell">
+            <h2>Sell on PSC</h2>
+            <p>List your products and get seen by thousands of shoppers. Create your free seller account, add items with prices, and they appear in the shop feed instantly.</p>
+        </div>
+
+        <div class="card" id="authCard">
+            <div class="tabs">
+                <div class="tab active" id="tabRegister" onclick="showTab('register')">Create Seller Account</div>
+                <div class="tab" id="tabLogin" onclick="showTab('login')">I Already Have an Account</div>
+            </div>
+
+            <div id="registerForm">
+                <div id="regError" class="error-msg" style="display:none;"></div>
+                <div class="row2">
+                    <div class="field">
+                        <label>Your Full Name *</label>
+                        <input type="text" id="sellerName" placeholder="John Doe" required>
+                    </div>
+                    <div class="field">
+                        <label>Business Name (optional)</label>
+                        <input type="text" id="sellerBusiness" placeholder="John's Electronics">
+                    </div>
+                </div>
+                <div class="row2">
+                    <div class="field">
+                        <label>Phone Number *</label>
+                        <input type="text" id="sellerPhone" placeholder="07XXXXXXXX" required>
+                    </div>
+                    <div class="field">
+                        <label>Email (optional)</label>
+                        <input type="email" id="sellerEmail" placeholder="you@example.com">
+                    </div>
+                </div>
+                <div class="field">
+                    <label>Password *</label>
+                    <input type="password" id="sellerPassword" placeholder="Choose a password (min 4 characters)" required>
+                </div>
+                <button class="primary-btn" id="registerBtn" onclick="doSellerRegister()">Create Seller Account</button>
+            </div>
+
+            <div id="loginForm" style="display:none;">
+                <div id="loginError" class="error-msg" style="display:none;"></div>
+                <div class="field">
+                    <label>Phone Number</label>
+                    <input type="text" id="loginSellerPhone" placeholder="07XXXXXXXX">
+                </div>
+                <div class="field">
+                    <label>Password</label>
+                    <input type="password" id="loginSellerPassword" placeholder="Your password">
+                </div>
+                <button class="primary-btn" onclick="doSellerLogin()">Log In</button>
+            </div>
+        </div>
+
+        <div class="card" id="dashboardCard" style="display:none;">
+            <div class="dashboard-header">
+                <div class="welcome">Welcome, <b id="dashName">Seller</b></div>
+                <button class="logout-btn" onclick="doSellerLogout()">Log Out</button>
+            </div>
+            <div class="info-box">
+                Your items appear in the shop feed automatically. Buyers can purchase them with PSC just like other products.
+                <div style="margin-top:8px;font-weight:600;">
+                    Monthly listing fee: <b>KES 1,000</b> per month.
+                    <a href="javascript:void(0)" onclick="openSellerPayModal(event)"
+                       style="color:#16a34a;font-weight:700;text-decoration:underline;margin-left:4px;">
+                        Click here to pay
+                    </a>
+                </div>
+            </div>
+            <h3>Add a New Item</h3>
+            <div id="addError" class="error-msg" style="display:none;"></div>
+            <div id="addSuccess" class="success-msg" style="display:none;"></div>
+            <div class="row2">
+                <div class="field">
+                    <label>Product Name *</label>
+                    <input type="text" id="itemName" placeholder="e.g. Samsung Galaxy A14">
+                </div>
+                <div class="field">
+                    <label>Price in KES *</label>
+                    <input type="number" id="itemPrice" min="1" step="1" placeholder="e.g. 15000">
+                </div>
+            </div>
+            <div class="field">
+                <label>Category (helps buyers find your item)</label>
+                <select id="itemCategory">
+                    <option value="Phones & Tablets">Phones & Tablets</option>
+                    <option value="TVs & Audio">TVs & Audio</option>
+                    <option value="Appliances">Appliances</option>
+                    <option value="Health & Beauty">Health & Beauty</option>
+                    <option value="Home & Office">Home & Office</option>
+                    <option value="Fashion">Fashion</option>
+                    <option value="Computing">Computing</option>
+                    <option value="Gaming">Gaming</option>
+                    <option value="Groceries">Groceries</option>
+                    <option value="Baby Products">Baby Products</option>
+                    <option value="Sporting Goods">Sporting Goods</option>
+                    <option value="Books">Books</option>
+                    <option value="Food & Pantry">Food & Pantry</option>
+                    <option value="Other">Other</option>
+                </select>
+            </div>
+            <div class="field">
+                <label>Description (optional)</label>
+                <textarea id="itemDesc" placeholder="Brief description: condition, features, etc."></textarea>
+            </div>
+            <div class="field">
+                <label>Item Image (optional)</label>
+                <div class="img-tabs">
+                    <button type="button" class="img-tab active" data-tab="upload" onclick="switchImgTab('upload')">&#128194; Upload from device</button>
+                    <button type="button" class="img-tab" data-tab="url" onclick="switchImgTab('url')">&#128279; Paste image URL</button>
+                </div>
+                <div id="imgTabUpload" class="img-tab-body">
+                    <input type="file" id="itemImageFile" accept="image/*" onchange="uploadSellerImage(this)">
+                    <div id="uploadStatus" style="font-size:0.85rem;color:#64748b;margin-top:6px;"></div>
+                </div>
+                <div id="imgTabUrl" class="img-tab-body" style="display:none;">
+                    <input type="text" id="itemImage" placeholder="https://example.com/image.jpg">
+                    <div style="font-size:0.8rem;color:#94a3b8;margin-top:6px;">
+                        We fetch the image and save it on PSC so it always displays correctly.
+                    </div>
+                </div>
+                <div id="imagePreviewWrap" style="display:none;margin-top:10px;">
+                    <img id="imagePreview" style="max-width:220px;max-height:180px;border-radius:8px;border:1px solid #e5e7eb;background:#f3f4f6;object-fit:contain;">
+                    <div style="margin-top:6px;">
+                        <button type="button" onclick="clearSellerImage()" style="background:#fef2f2;color:#dc3545;border:1px solid #fecaca;padding:6px 12px;border-radius:6px;cursor:pointer;font-weight:600;font-size:0.82rem;">Remove image</button>
+                    </div>
+                </div>
+                <input type="hidden" id="itemImageFinal" value="">
+            </div>
+            <button class="primary-btn" id="addItemBtn" onclick="doAddItem()">List Item for Sale</button>
+        </div>
+
+        <div class="card" id="itemsCard" style="display:none;">
+            <h3>My Listed Items</h3>
+            <div id="myItemsList" class="items-list">
+                <div class="empty-items">You haven not listed any items yet.</div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+    var PSC_TO_KES = 100;
+    var sellerSession = null;
+
+    function showTab(tab) {
+        document.getElementById('tabRegister').classList.toggle('active', tab === 'register');
+        document.getElementById('tabLogin').classList.toggle('active', tab === 'login');
+        document.getElementById('registerForm').style.display = (tab === 'register') ? 'block' : 'none';
+        document.getElementById('loginForm').style.display = (tab === 'login') ? 'block' : 'none';
+    }
+    function showError(id, msg) { var e = document.getElementById(id); e.textContent = msg; e.style.display = 'block'; }
+    function hideError(id) { document.getElementById(id).style.display = 'none'; }
+    function showSuccess(id, msg) { var e = document.getElementById(id); e.textContent = msg; e.style.display = 'block'; }
+    function esc(s) {
+        return String(s == null ? '' : s).replace(/[&<>"']/g, function(ch) {
+            return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[ch];
+        });
+    }
+
+    function doSellerRegister() {
+        hideError('regError');
+        var name = document.getElementById('sellerName').value.trim();
+        var business = document.getElementById('sellerBusiness').value.trim();
+        var phone = document.getElementById('sellerPhone').value.trim();
+        var email = document.getElementById('sellerEmail').value.trim();
+        var password = document.getElementById('sellerPassword').value.trim();
+        if (!name || !phone || !password) return showError('regError', 'Name, phone and password are required.');
+        if (password.length < 4) return showError('regError', 'Password must be at least 4 characters.');
+        var btn = document.getElementById('registerBtn');
+        btn.disabled = true; btn.textContent = 'Creating account...';
+        fetch('/api/seller/register', {
+            method: 'POST', credentials: 'same-origin',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({name: name, business_name: business, phone: phone, email: email, password: password})
+        })
+        .then(function(r){ return r.json(); })
+        .then(function(d){
+            btn.disabled = false; btn.textContent = 'Create Seller Account';
+            if (!d.success) return showError('regError', d.message || 'Registration failed.');
+            sellerSession = d.seller;
+            showDashboard();
+        })
+        .catch(function(e){
+            btn.disabled = false; btn.textContent = 'Create Seller Account';
+            showError('regError', 'Network error: ' + e);
+        });
+    }
+
+    function doSellerLogin() {
+        hideError('loginError');
+        var phone = document.getElementById('loginSellerPhone').value.trim();
+        var password = document.getElementById('loginSellerPassword').value.trim();
+        if (!phone || !password) return showError('loginError', 'Phone and password required.');
+        fetch('/api/seller/login', {
+            method: 'POST', credentials: 'same-origin',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({phone: phone, password: password})
+        })
+        .then(function(r){ return r.json(); })
+        .then(function(d){
+            if (!d.success) return showError('loginError', d.message || 'Login failed.');
+            sellerSession = d.seller;
+            showDashboard();
+        })
+        .catch(function(e){ showError('loginError', 'Network error: ' + e); });
+    }
+
+    function doSellerLogout() {
+        fetch('/api/seller/logout', {method: 'POST', credentials: 'same-origin'})
+            .then(function(){ location.reload(); });
+    }
+
+    function showDashboard() {
+        document.getElementById('authCard').style.display = 'none';
+        document.getElementById('dashboardCard').style.display = 'block';
+        document.getElementById('itemsCard').style.display = 'block';
+        document.getElementById('dashName').textContent = sellerSession.business_name || sellerSession.name;
+        loadMyItems();
+    }
+
+    function doAddItem() {
+        hideError('addError');
+        document.getElementById('addSuccess').style.display = 'none';
+        var name = document.getElementById('itemName').value.trim();
+        var price = parseFloat(document.getElementById('itemPrice').value || '0');
+        var category = document.getElementById('itemCategory').value;
+        var description = document.getElementById('itemDesc').value.trim();
+        var image = uploadedImageUrl || document.getElementById('itemImage').value.trim();
+        if (!name) return showError('addError', 'Product name is required.');
+        if (!price || price < 1) return showError('addError', 'Price must be at least KES 1.');
+        var btn = document.getElementById('addItemBtn');
+        btn.disabled = true; btn.textContent = 'Listing item...';
+        fetch('/api/seller/items', {
+            method: 'POST', credentials: 'same-origin',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({name: name, kes_price: price, category: category, description: description, image: image})
+        })
+        .then(function(r){ return r.json(); })
+        .then(function(d){
+            btn.disabled = false; btn.textContent = 'List Item for Sale';
+            if (!d.success) return showError('addError', d.message || 'Could not add item.');
+            document.getElementById('itemName').value = '';
+            document.getElementById('itemPrice').value = '';
+            document.getElementById('itemDesc').value = '';
+            document.getElementById('itemImage').value = '';
+            clearSellerImage();
+            showSuccess('addSuccess', 'Item listed! It will appear in the shop feed within a moment.');
+            loadMyItems();
+        })
+        .catch(function(e){
+            btn.disabled = false; btn.textContent = 'List Item for Sale';
+            showError('addError', 'Network error: ' + e);
+        });
+    }
+
+    function loadMyItems() {
+        var container = document.getElementById('myItemsList');
+        fetch('/api/seller/items', {credentials: 'same-origin'})
+            .then(function(r){ return r.json(); })
+            .then(function(d){
+                if (!d.success || !d.items || !d.items.length) {
+                    container.innerHTML = '<div class="empty-items">You have not listed any items yet.</div>';
+                    return;
+                }
+                var html = '';
+                d.items.forEach(function(item){
+                    var psc = (item.kes_price / PSC_TO_KES).toFixed(2);
+                    var imgPart = item.image
+                        ? '<img src="' + esc(item.image) + '" alt=""><div class="no-img" style="display:none;">IMG</div>'
+                        : '<div class="no-img">IMG</div>';
+                    html += '<div class="item-row">'
+                          + imgPart
+                          + '<div class="info">'
+                          + '<div class="name">' + esc(item.name) + '</div>'
+                          + '<div class="meta">' + esc(item.category || 'Other') + '</div>'
+                          + '<div class="price">KSh ' + item.kes_price.toFixed(2) + ' (' + psc + ' PSC)</div>'
+                          + '</div>'
+                          + '<button class="delete-btn" onclick="deleteItem(' + item.id + ')">Remove</button>'
+                          + '</div>';
+                });
+                container.innerHTML = html;
+            })
+            .catch(function(){
+                container.innerHTML = '<div class="empty-items">Could not load your items.</div>';
+            });
+    }
+
+    function deleteItem(id) {
+        if (!confirm('Remove this item from the shop?')) return;
+        fetch('/api/seller/items/' + id, {method: 'DELETE', credentials: 'same-origin'})
+            .then(function(r){ return r.json(); })
+            .then(function(d){
+                if (!d.success) return alert(d.message || 'Could not remove.');
+                loadMyItems();
+            });
+    }
+
+    var uploadedImageUrl = "";
+
+    function switchImgTab(tab){
+        var tabs = document.querySelectorAll('.img-tab');
+        for (var i = 0; i < tabs.length; i++) {
+            tabs[i].classList.toggle('active', tabs[i].getAttribute('data-tab') === tab);
+        }
+        var up = document.getElementById('imgTabUpload');
+        var ur = document.getElementById('imgTabUrl');
+        if (up) up.style.display = (tab === 'upload') ? 'block' : 'none';
+        if (ur) ur.style.display = (tab === 'url')    ? 'block' : 'none';
+    }
+
+    function uploadSellerImage(input){
+        var f = input.files && input.files[0];
+        if (!f) return;
+        var fd = new FormData();
+        fd.append('image', f);
+        var st = document.getElementById('uploadStatus');
+        if (st) { st.textContent = 'Uploading...'; st.style.color = '#64748b'; }
+        fetch('/api/seller/upload_image', {
+            method: 'POST', body: fd, credentials: 'same-origin'
+        })
+        .then(function(r){ return r.json(); })
+        .then(function(d){
+            if (!d.success) {
+                if (st) { st.textContent = 'Upload failed: ' + (d.message || 'Unknown error'); st.style.color = '#dc3545'; }
+                return;
+            }
+            uploadedImageUrl = d.url;
+            if (st) { st.textContent = 'Uploaded.'; st.style.color = '#065f46'; }
+            document.getElementById('imagePreview').src = d.url;
+            document.getElementById('imagePreviewWrap').style.display = 'block';
+        })
+        .catch(function(e){
+            if (st) { st.textContent = 'Error: ' + e; st.style.color = '#dc3545'; }
+        });
+    }
+
+    function clearSellerImage(){
+        uploadedImageUrl = "";
+        var f = document.getElementById('itemImageFile');
+        if (f) f.value = "";
+        var u = document.getElementById('itemImage');
+        if (u) u.value = "";
+        var st = document.getElementById('uploadStatus');
+        if (st) st.textContent = "";
+        var pv = document.getElementById('imagePreviewWrap');
+        if (pv) pv.style.display = 'none';
+    }
+
+    fetch('/api/seller/me', {credentials: 'same-origin'})
+        .then(function(r){ return r.json(); })
+        .then(function(d){
+            if (d && d.success && d.seller) {
+                sellerSession = d.seller;
+                showDashboard();
+            }
+        })
+        .catch(function(){});
+    </script>
+
+<div id="sellerPayModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.55);z-index:9999;align-items:center;justify-content:center;padding:20px;">
+  <div style="background:#fff;border-radius:14px;max-width:440px;width:100%;padding:26px;box-shadow:0 20px 60px rgba(0,0,0,0.3);animation:pscModalIn 0.2s ease;">
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:12px;">
+      <h3 style="margin:0;color:#1a1a2e;font-size:1.2rem;">Pay for PSC Seller Account</h3>
+      <button onclick="closeSellerPayModal()" style="background:none;border:none;font-size:1.5rem;color:#999;cursor:pointer;line-height:1;">&times;</button>
+    </div>
+    <p style="color:#475569;font-size:0.92rem;margin:0 0 16px;">
+      To keep listing items on PSC, pay <b>KES 1,000 per month</b>. Use the details below.
+    </p>
+
+    <div style="background:#ecfdf5;border-left:4px solid #16a34a;border-radius:8px;padding:14px;margin-bottom:12px;">
+      <div style="font-size:0.75rem;color:#065f46;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px;">
+        Talk to us / WhatsApp
+      </div>
+      <div style="font-size:1.15rem;font-weight:800;color:#065f46;">
+        <a href="tel:0796208133" style="color:#065f46;text-decoration:none;">0796208133</a>
+      </div>
+      <div style="margin-top:8px;">
+        <a href="https://wa.me/254796208133?text=Hi%2C%20I%20want%20to%20pay%20the%20KES%201000%20monthly%20seller%20fee%20for%20PSC."
+           target="_blank" rel="noopener"
+           style="display:inline-block;background:#25D366;color:#fff;text-decoration:none;padding:8px 14px;border-radius:6px;font-weight:700;font-size:0.88rem;">
+          Message on WhatsApp
+        </a>
+      </div>
+    </div>
+
+    <div style="background:#eff6ff;border-left:4px solid #3b82f6;border-radius:8px;padding:14px;margin-bottom:16px;">
+      <div style="font-size:0.75rem;color:#1e40af;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px;">
+        Paybill number
+      </div>
+      <div style="font-size:1.15rem;font-weight:800;color:#1e40af;">
+        <!-- ADMIN: change this paybill number to your real one -->
+        <span id="pscSellerPaybill">12345</span>
+      </div>
+      <div style="font-size:0.82rem;color:#64748b;margin-top:6px;">
+        Account number: <b>your registered phone number</b>
+      </div>
+    </div>
+
+    <p style="color:#64748b;font-size:0.85rem;margin:0 0 14px;">
+      After paying, send the M-PESA confirmation code to <b>0796208133</b> so your seller account gets credited.
+    </p>
+
+    <button onclick="closeSellerPayModal()"
+            style="width:100%;padding:12px;background:#667eea;color:#fff;border:none;border-radius:9px;font-weight:700;cursor:pointer;font-size:1rem;">
+      Close
+    </button>
+  </div>
+</div>
+<style>
+@keyframes pscModalIn {
+  from { opacity:0; transform:translateY(12px) scale(0.97); }
+  to   { opacity:1; transform:translateY(0) scale(1); }
+}
+</style>
+<script>
+function openSellerPayModal(e) {
+  if (e) e.preventDefault();
+  var m = document.getElementById('sellerPayModal');
+  if (m) m.style.display = 'flex';
+}
+function closeSellerPayModal() {
+  var m = document.getElementById('sellerPayModal');
+  if (m) m.style.display = 'none';
+}
+document.addEventListener('keydown', function(e){
+  if (e.key === 'Escape') closeSellerPayModal();
+});
+document.addEventListener('click', function(e){
+  var m = document.getElementById('sellerPayModal');
+  if (m && e.target === m) closeSellerPayModal();
+});
+</script>
+
+</body>
+</html>

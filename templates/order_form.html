@@ -1,0 +1,286 @@
+﻿<!DOCTYPE html>
+<html>
+<head>
+    <title>Complete Your Order - PSC</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Segoe UI', sans-serif;
+            background: #f5f6fa;
+            min-height: 100vh;
+            padding: 20px;
+        }
+        .wrap { max-width: 640px; margin: 0 auto; }
+        .card {
+            background: white;
+            border-radius: 12px;
+            padding: 30px;
+            box-shadow: 0 2px 12px rgba(0,0,0,0.08);
+        }
+        h1 { color: #764ba2; margin-bottom: 8px; font-size: 1.6rem; }
+        .sub { color: #666; margin-bottom: 25px; font-size: 0.95rem; }
+        .product-box {
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 10px;
+            border-left: 4px solid #28a745;
+            margin-bottom: 25px;
+            display: flex;
+            gap: 15px;
+            align-items: center;
+        }
+        .product-box img, .product-box .ph {
+            width: 90px; height: 90px;
+            object-fit: contain;
+            background: #fff;
+            border-radius: 8px;
+        }
+        .product-box .ph {
+            display: flex; align-items: center; justify-content: center;
+            color: #ccc; font-size: 2.5rem;
+        }
+        .product-box .info { flex: 1; }
+        .product-box h3 { font-size: 1rem; color: #333; margin-bottom: 5px; }
+        .product-box .price { color: #28a745; font-weight: bold; font-size: 1.2rem; }
+        .field { margin-bottom: 15px; }
+        label { display: block; font-weight: 600; color: #333; margin-bottom: 6px; font-size: 0.9rem; }
+        input, textarea, select {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #e5e7eb;
+            border-radius: 8px;
+            font-size: 1rem;
+            font-family: inherit;
+        }
+        input:focus, textarea:focus { outline: none; border-color: #667eea; }
+        .row { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; }
+        .summary {
+            background: #f0f4ff;
+            padding: 18px;
+            border-radius: 10px;
+            margin: 20px 0;
+            border-left: 4px solid #667eea;
+        }
+        .summary div { display: flex; justify-content: space-between; margin-bottom: 6px; }
+        .summary .total {
+            font-weight: bold; font-size: 1.15rem; color: #28a745;
+            margin-top: 8px; padding-top: 8px; border-top: 1px solid #ccd;
+        }
+        .buttons { display: flex; gap: 10px; margin-top: 20px; }
+        .buttons button {
+            flex: 1; padding: 15px; border: none; border-radius: 8px;
+            font-size: 1.05rem; font-weight: bold; cursor: pointer;
+        }
+        .btn-confirm { background: #28a745; color: white; }
+        .btn-confirm:hover { background: #1f8a37; }
+        .btn-confirm:disabled { background: #999; cursor: not-allowed; }
+        .btn-cancel { background: #e5e7eb; color: #333; }
+        .wallet-info {
+            background: #fff9e6;
+            padding: 12px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            font-size: 0.9rem;
+            border-left: 4px solid #ffc107;
+        }
+        .discount-box {
+            background: #ecfdf5;
+            border-left: 4px solid #10b981;
+            padding: 14px 16px;
+            border-radius: 8px;
+            margin: 20px 0;
+            font-size: 0.95rem;
+            color: #065f46;
+        }
+        .discount-box.loading { background: #f0f4ff; border-left-color: #667eea; color: #333; }
+        .discount-box.error { background: #fee2e2; border-left-color: #dc3545; color: #991b1b; }
+        .discount-box .row-line { display: flex; justify-content: space-between; margin-bottom: 6px; }
+        .discount-box .row-line.discount { color: #059669; font-weight: 600; }
+        .discount-box .row-line.grand {
+            font-weight: bold; font-size: 1.1rem;
+            margin-top: 8px; padding-top: 8px; border-top: 1px solid #a7f3d0;
+        }
+        .discount-box .split { font-size: 0.85rem; color: #047857; margin-top: 4px; }
+        @media (max-width: 480px) { .row { grid-template-columns: 1fr; } }
+    </style>
+</head>
+<body>
+    <div class="wrap">
+        <div class="card">
+            <h1>Complete Your Order</h1>
+            <p class="sub">Fill in your delivery details. We'll contact you to confirm.</p>
+
+            <div class="wallet-info">
+                💰 Your PSC wallet: <strong>{{ wallet }}</strong><br>
+                Balance: <strong>{{ balance }} PSC</strong>
+            </div>
+
+            <div class="product-box">
+                {% if product.image %}
+                <img src="{{ product.image }}" alt="">
+                {% else %}
+                <div class="ph">📦</div>
+                {% endif %}
+                <div class="info">
+                    <h3>{{ product.name }}</h3>
+                    <div class="price">{{ product.price }} PSC</div>
+                    <div style="color:#888;font-size:0.85rem;">(KSh {{ product.client_kes }})</div>
+                </div>
+            </div>
+
+            <div class="field">
+                <label>Quantity</label>
+                <input type="number" id="qty" value="1" min="1" oninput="updateTotal()">
+            </div>
+
+            <div class="row">
+                <div class="field">
+                    <label>Full Name *</label>
+                    <input type="text" id="fname" placeholder="e.g. Erick Otieno">
+                </div>
+                <div class="field">
+                    <label>Phone Number *</label>
+                    <input type="tel" id="phone" placeholder="e.g. 0712 345 678">
+                </div>
+            </div>
+
+            <div class="field">
+                <label>Email (optional)</label>
+                <input type="email" id="email" placeholder="you@example.com">
+            </div>
+
+            <div class="field">
+                <label>Delivery Address *</label>
+                <textarea id="address" rows="2" placeholder="Street, building, house number, landmark"></textarea>
+            </div>
+
+            <div class="row">
+                <div class="field">
+                    <label>City / Town *</label>
+                    <input type="text" id="city" placeholder="e.g. Nairobi">
+                </div>
+                <div class="field">
+                    <label>Landmark (optional)</label>
+                    <input type="text" id="landmark" placeholder="e.g. Near Kencom">
+                </div>
+            </div>
+
+            <div class="summary">
+                <div><span>Unit price</span><span id="sUnit">{{ product.price }} PSC</span></div>
+                <div><span>Quantity</span><span id="sQty">1</span></div>
+                <div class="total"><span>Total</span><span id="sTotal">{{ product.price }} PSC</span></div>
+            </div>
+
+            <div class="discount-box" id="discountBox">⏳ Computing your bonus discount…</div>
+
+            <div class="buttons">
+                <button class="btn-cancel" onclick="history.back()">Cancel</button>
+                <button class="btn-confirm" id="confirmBtn" onclick="submitOrder()">Confirm Order</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const unitPrice = Number('{{ product.price }}');
+        const productId = Number('{{ product.id }}');
+        const wallet = '{{ wallet }}';
+
+        function updateTotal() {
+            const q = parseInt(document.getElementById('qty').value) || 1;
+            document.getElementById('sQty').textContent = q;
+            document.getElementById('sUnit').textContent = unitPrice + ' PSC';
+            document.getElementById('sTotal').textContent = (unitPrice * q).toFixed(2) + ' PSC';
+            refreshDiscountPreview(q);
+        }
+
+        function refreshDiscountPreview(qty) {
+            const box = document.getElementById('discountBox');
+            box.className = 'discount-box loading';
+            box.innerHTML = '⏳ Computing your bonus discount…';
+
+            fetch('/api/checkout_preview', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    wallet: wallet,
+                    product_id: productId,
+                    quantity: qty
+                })
+            })
+            .then(r => r.json())
+            .then(d => {
+                if (!d.success) {
+                    box.className = 'discount-box error';
+                    box.innerHTML = '⚠️ ' + (d.message || 'Could not compute discount.');
+                    return;
+                }
+                const rate = d.psc_to_kes_rate || 100;
+                const gross_kes = (d.gross_psc * rate).toFixed(2);
+                const disc_kes = (d.bonus_discount_psc * rate).toFixed(2);
+                const pay_kes = (d.payable_psc * rate).toFixed(2);
+
+                box.className = 'discount-box';
+                box.innerHTML =
+                    '<div class="row-line"><span>Item total</span><span>' + d.gross_psc.toFixed(2) + ' PSC (KES ' + gross_kes + ')</span></div>' +
+                    '<div class="row-line discount"><span>Bonus discount</span><span>− ' + d.bonus_discount_psc.toFixed(2) + ' PSC (KES ' + disc_kes + ')</span></div>' +
+                    '<div class="row-line grand"><span>You pay</span><span>' + d.payable_psc.toFixed(2) + ' PSC (KES ' + pay_kes + ')</span></div>' +
+                    '<div class="split">Paid from Wallet PSC: ' + d.purchased_psc_used.toFixed(2) + ' PSC · Paid from Bonus PSC: ' + d.bonus_psc_used.toFixed(2) + ' PSC</div>';
+            })
+            .catch(e => {
+                box.className = 'discount-box error';
+                box.innerHTML = '⚠️ Network error computing discount.';
+            });
+        }
+
+        function submitOrder() {
+            const q = parseInt(document.getElementById('qty').value) || 1;
+            const name = document.getElementById('fname').value.trim();
+            const phone = document.getElementById('phone').value.trim();
+            const email = document.getElementById('email').value.trim();
+            const address = document.getElementById('address').value.trim();
+            const city = document.getElementById('city').value.trim();
+            const landmark = document.getElementById('landmark').value.trim();
+
+            if (!name || !phone || !address || !city) {
+                alert('Please fill all required (*) fields.');
+                return;
+            }
+
+            document.getElementById('confirmBtn').disabled = true;
+            document.getElementById('confirmBtn').textContent = 'Processing…';
+
+            fetch('/api/place_order', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    wallet: wallet,
+                    product_id: productId,
+                    quantity: q,
+                    shipping: {
+                        name: name, phone: phone, email: email,
+                        address: address, city: city, landmark: landmark
+                    }
+                })
+            })
+            .then(r => r.json())
+            .then(d => {
+                if (d.success) {
+                    window.location.href = '/order_success?order_id=' + d.order_id;
+                } else {
+                    alert('❌ ' + d.message);
+                    document.getElementById('confirmBtn').disabled = false;
+                    document.getElementById('confirmBtn').textContent = 'Confirm Order';
+                }
+            })
+            .catch(e => {
+                alert('Error: ' + e);
+                document.getElementById('confirmBtn').disabled = false;
+                document.getElementById('confirmBtn').textContent = 'Confirm Order';
+            });
+        }
+
+        refreshDiscountPreview(1);
+    </script>
+</body>
+</html>

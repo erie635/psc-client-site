@@ -1,0 +1,590 @@
+﻿<!DOCTYPE html>
+<html>
+<head>
+    <title>Confirm Purchase - PSC</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <style>
+        body { font-family: 'Segoe UI', sans-serif; background: #f5f6fa; min-height: 100vh; padding: 20px; }
+        .wrap { max-width: 700px; margin: 0 auto; }
+        .card { background: white; border-radius: 12px; padding: 30px; box-shadow: 0 2px 12px rgba(0,0,0,0.08); }
+        h1 { color: #764ba2; margin-bottom: 8px; }
+        .sub { color: #666; margin-bottom: 20px; }
+        .items { background: #f8f9fa; padding: 15px; border-radius: 10px; margin-bottom: 20px; }
+        .item { display: flex; justify-content: space-between; padding: 10px 0; border-bottom: 1px solid #e9ecef; }
+        .item:last-child { border-bottom: none; }
+        .item .name { flex: 1; font-weight: 600; }
+        .item .qty { color: #666; margin: 0 15px; }
+        .item .total { font-weight: bold; color: #28a745; min-width: 90px; text-align: right; }
+        .total-box { background: #f0f4ff; padding: 18px; border-radius: 10px; margin: 20px 0; border-left: 4px solid #667eea; display: flex; flex-direction: column; gap: 6px; }
+        .total-row { display: flex; justify-content: space-between; width: 100%; }
+        .total-row.big { font-size: 1.3rem; font-weight: bold; }
+        .total-row.psc { font-size: 0.95rem; color: #667eea; }
+        .field { margin-bottom: 15px; }
+        label { display: block; font-weight: 600; margin-bottom: 6px; font-size: 0.9rem; }
+        input, textarea { width: 100%; padding: 12px; border: 2px solid #e5e7eb; border-radius: 8px; font-size: 1rem; font-family: inherit; }
+        input:focus, textarea:focus { outline: none; border-color: #667eea; }
+        .row { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; }
+        .buttons { display: flex; gap: 10px; margin-top: 20px; }
+        .buttons button { flex: 1; padding: 15px; border: none; border-radius: 8px; font-size: 1.05rem; font-weight: bold; cursor: pointer; }
+        .btn-confirm { background: #28a745; color: white; }
+        .btn-confirm:disabled { background: #999; cursor: not-allowed; }
+        .btn-cancel { background: #e5e7eb; color: #333; }
+        .warn { background: #fff9e6; padding: 12px; border-radius: 8px; margin-bottom: 20px; border-left: 4px solid #ffc107; font-size: 0.9rem; }
+        .warn.ok { background: #ecfdf5; border-left-color: #10b981; color: #065f46; }
+        .warn.low { background: #fee2e2; border-left-color: #dc3545; color: #991b1b; }
+        .status-msg { padding: 10px; border-radius: 8px; margin-bottom: 15px; font-size: 0.95rem; }
+        .status-msg.success { background: #d4edda; color: #155724; }
+        .status-msg.error { background: #f8d7da; color: #721c24; }
+        .status-msg.info { background: #d1ecf1; color: #0c5460; }
+        .discount-box { background: #ecfdf5; border-left: 4px solid #10b981; padding: 14px 16px; border-radius: 8px; margin: 20px 0; font-size: 0.95rem; color: #065f46; display: none; }
+        .discount-box.loading { background: #f0f4ff; border-left-color: #667eea; color: #333; }
+        .discount-box.error { background: #fee2e2; border-left-color: #dc3545; color: #991b1b; }
+        .discount-box .row-line { display: flex; justify-content: space-between; margin-bottom: 6px; }
+        .discount-box .row-line.discount { color: #059669; font-weight: 600; }
+        .discount-box .row-line.grand { font-weight: bold; font-size: 1.1rem; margin-top: 8px; padding-top: 8px; border-top: 1px solid #a7f3d0; }
+        .discount-box .split { font-size: 0.85rem; color: #047857; margin-top: 4px; }
+
+        /* ============================================================
+           ADDED: SAVINGS CHOOSER MODAL STYLES
+           ============================================================ */
+        .modal-bg { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.55); display: none; align-items: center; justify-content: center; z-index: 1000; padding: 20px; }
+        .modal-bg.show { display: flex; }
+        .modal { background: white; border-radius: 14px; padding: 26px; max-width: 460px; width: 100%; box-shadow: 0 12px 40px rgba(0,0,0,0.35); }
+        .modal h2 { color: #764ba2; margin: 0 0 6px 0; font-size: 1.4rem; }
+        .modal .sub2 { color: #666; margin-bottom: 18px; font-size: 0.95rem; }
+        .bal-grid { display: grid; grid-template-columns: 1fr; gap: 10px; margin-bottom: 18px; }
+        .bal-row { display: flex; justify-content: space-between; background: #f8f9fa; padding: 12px; border-radius: 8px; border-left: 4px solid #667eea; }
+        .bal-row.savings { border-left-color: #0d6efd; }
+        .bal-row.bonus { border-left-color: #f0a500; }
+        .bal-row.total { border-left-color: #28a745; background: #ecfdf5; font-weight: bold; }
+        .bal-row .lbl { color: #444; font-size: 0.95rem; }
+        .bal-row .val { font-weight: bold; color: #198754; }
+        .modal .choose-btns { display: flex; flex-direction: column; gap: 10px; margin-top: 14px; }
+        .modal .choose-btns button { padding: 15px; border: none; border-radius: 8px; font-size: 1rem; font-weight: bold; cursor: pointer; text-align: left; }
+        .btn-savings { background: #0d6efd; color: white; }
+        .btn-bonus { background: #f0a500; color: #222; }
+        .btn-cancel2 { background: #e5e7eb; color: #333; }
+        .modal .hint { font-size: 0.82rem; color: #666; margin-top: 10px; }
+        .modal .warn-inline { background: #fee2e2; border-left: 4px solid #dc3545; color: #991b1b; padding: 10px 12px; border-radius: 6px; font-size: 0.88rem; margin-bottom: 12px; }
+        /* ============================================================
+           END ADDED
+           ============================================================ */
+    </style>
+</head>
+<body>
+    <div class="wrap">
+        <div class="card">
+            <h1>Confirm Your Purchase</h1>
+            <p class="sub">Enter your phone number first — we'll check if you've shopped with us before.</p>
+
+            <div id="verifyMsg" class="status-msg info">
+                📞 Enter your phone number below and press <strong>Verify</strong>.
+            </div>
+
+            <div class="field">
+                <label>Phone Number *</label>
+                <div style="display:flex;gap:8px;">
+                    <input type="tel" id="phone" placeholder="e.g. 0712345678" style="flex:1;">
+                    <button type="button" onclick="verifyPhone()" style="padding:12px 20px;background:#667eea;color:white;border:none;border-radius:8px;font-weight:bold;cursor:pointer;">Verify</button>
+                </div>
+            </div>
+
+            <div id="itemsList" class="items" style="display:none;">Loading cart…</div>
+            <div id="totalsBox" class="total-box" style="display:none;">
+                <div class="total-row big">
+                    <span>Total to pay</span>
+                    <span id="grandTotalKes" style="color:#28a745;">KSh 0.00</span>
+                </div>
+                <div class="total-row psc">
+                    <span>Equivalent in PSC (will be deducted)</span>
+                    <span id="grandTotal">0.00 PSC</span>
+                </div>
+            </div>
+
+            <div id="walletBox" class="warn ok" style="display:none;">
+                💰 Wallet: <strong id="walletAddr">—</strong><br>
+                Balance: <strong id="walletBal">—</strong>
+            </div>
+
+            <div class="discount-box" id="discountBox"></div>
+
+            <div id="detailsForm" style="display:none;">
+                <div class="row">
+                    <div class="field">
+                        <label>Full Name *</label>
+                        <input type="text" id="fname" placeholder="e.g. Erick Otieno">
+                    </div>
+                    <div class="field">
+                        <label>Email (optional)</label>
+                        <input type="email" id="email" placeholder="you@example.com">
+                    </div>
+                </div>
+                <div class="field">
+                    <label>Delivery Address *</label>
+                    <textarea id="address" rows="2" placeholder="Street, building, landmark"></textarea>
+                </div>
+                <div class="row">
+                    <div class="field">
+                        <label>City / Town *</label>
+                        <input type="text" id="city" placeholder="Nairobi">
+                    </div>
+                    <div class="field">
+                        <label>Landmark (optional)</label>
+                        <input type="text" id="landmark" placeholder="Near Kencom">
+                    </div>
+                </div>
+                <div class="buttons">
+                    <button class="btn-cancel" onclick="history.back()">Cancel</button>
+                    <button id="confirmBtn" class="btn-confirm" onclick="placeMultiOrder()">Confirm & Pay</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ============================================================
+         ADDED: SAVINGS / CASH CHOOSER MODAL
+         ============================================================ -->
+    <div id="savingsModal" class="modal-bg">
+        <div class="modal">
+            <h2>How would you like to pay?</h2>
+            <p class="sub2">Choose the wallet balance to use for this order.</p>
+
+            <div class="bal-grid">
+                <div class="bal-row savings">
+                    <span class="lbl">💰 Purchased PSC (your savings)</span>
+                    <span class="val" id="modalPurchased">0.00 PSC</span>
+                </div>
+                <div class="bal-row bonus">
+                    <span class="lbl">🎁 Bonus PSC (welcome + daily)</span>
+                    <span class="val" id="modalBonus">0.00 PSC</span>
+                </div>
+                <div class="bal-row total">
+                    <span class="lbl">Total available</span>
+                    <span class="val" id="modalTotal">0.00 PSC</span>
+                </div>
+            </div>
+
+            <div style="background:#f0f4ff;padding:12px 14px;border-radius:8px;border-left:4px solid #667eea;margin-bottom:16px;">
+                <div style="display:flex;justify-content:space-between;font-weight:bold;">
+                    <span>Amount to pay</span>
+                    <span id="modalPayable" style="color:#198754;">0.00 PSC</span>
+                </div>
+            </div>
+
+            <div id="modalWarn" class="warn-inline" style="display:none;"></div>
+
+            <div class="choose-btns">
+                <button class="btn-savings" onclick="confirmPayFrom('savings')">
+                    💰 Pay from my Savings (Purchased PSC)
+                </button>
+                <button class="btn-bonus" onclick="confirmPayFrom('bonus')">
+                    🎁 Pay with Bonus PSC
+                </button>
+                <button class="btn-cancel2" onclick="closeSavingsModal()">Cancel</button>
+            </div>
+
+            <div class="hint">
+                Your order will be placed using the wallet you choose. If the chosen
+                balance is not enough, the remaining amount will be taken from the other balance automatically.
+            </div>
+        </div>
+    </div>
+    <!-- ============================================================
+         END ADDED
+         ============================================================ -->
+
+    <script>
+        const cart = JSON.parse(sessionStorage.getItem('psc_checkout') || '[]');
+        let grandTotal = 0;
+        let verifiedWallet = '';
+        let verifiedBalance = 0;
+        let verifiedWalletPsc = 0;
+        let verifiedBonus = 0;
+        let previewData = null;
+
+        const PSC_TO_KES_RATE = 100;
+
+        function renderCart() {
+            if (cart.length === 0) {
+                document.getElementById('itemsList').innerHTML =
+                    '<div style="text-align:center;padding:20px;color:#999;">Cart is empty. <a href="/">Go back to shop</a></div>';
+                return;
+            }
+            let html = '';
+            grandTotal = 0;
+            cart.forEach(item => {
+                const subtotal = item.product.price * item.quantity;
+                grandTotal += subtotal;
+                html += '<div class="item">';
+                html += '<span class="name">' + item.product.name.substring(0, 55) + '</span>';
+                html += '<span class="qty">× ' + item.quantity + '</span>';
+                html += '<span class="total">KSh ' + (subtotal * PSC_TO_KES_RATE).toFixed(2) + '</span>';
+                html += '</div>';
+            });
+            document.getElementById('itemsList').innerHTML = html;
+            document.getElementById('grandTotalKes').textContent = 'KSh ' + (grandTotal * PSC_TO_KES_RATE).toFixed(2);
+            document.getElementById('grandTotal').textContent = grandTotal.toFixed(2) + ' PSC';
+        }
+
+        function showMsg(text, cls) {
+            const el = document.getElementById('verifyMsg');
+            el.className = 'status-msg ' + cls;
+            el.innerHTML = text;
+        }
+
+        function refreshDiscountPreview() {
+            if (!verifiedWallet || cart.length === 0) return;
+            const box = document.getElementById('discountBox');
+            box.style.display = 'block';
+            box.className = 'discount-box loading';
+            box.innerHTML = '⏳ Computing your bonus discount…';
+
+            const itemsPayload = cart.map(c => ({
+                product_id: c.id,
+                quantity: c.quantity
+            }));
+
+            fetch('/api/checkout_preview', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    wallet: verifiedWallet,
+                    items: itemsPayload
+                })
+            })
+            .then(r => r.json())
+            .then(d => {
+                if (!d.success) {
+                    box.className = 'discount-box error';
+                    box.innerHTML = '⚠️ ' + (d.message || 'Could not compute discount.');
+                    return;
+                }
+                previewData = d;
+                const rate = d.psc_to_kes_rate || PSC_TO_KES_RATE;
+                const gross_kes = (d.gross_psc * rate).toFixed(2);
+                const disc_kes = (d.bonus_discount_psc * rate).toFixed(2);
+                const pay_kes = (d.payable_psc * rate).toFixed(2);
+
+                box.className = 'discount-box';
+                box.innerHTML =
+                    '<div class="row-line"><span>Cart total</span><span>' + d.gross_psc.toFixed(2) + ' PSC (KES ' + gross_kes + ')</span></div>' +
+                    '<div class="row-line discount"><span>Bonus discount</span><span>− ' + d.bonus_discount_psc.toFixed(2) + ' PSC (KES ' + disc_kes + ')</span></div>' +
+                    '<div class="row-line grand"><span>You pay</span><span>' + d.payable_psc.toFixed(2) + ' PSC (KES ' + pay_kes + ')</span></div>' +
+                    '<div class="split">Paid from Wallet PSC: ' + d.purchased_psc_used.toFixed(2) + ' PSC · Paid from Bonus PSC: ' + d.bonus_psc_used.toFixed(2) + ' PSC</div>';
+
+                document.getElementById('grandTotalKes').textContent = 'KES ' + pay_kes;
+                document.getElementById('grandTotal').textContent = d.payable_psc.toFixed(2) + ' PSC';
+            })
+            .catch(e => {
+                box.className = 'discount-box error';
+                box.innerHTML = '⚠️ Network error computing discount.';
+            });
+        }
+
+        function verifyPhone() {
+            const phone = document.getElementById('phone').value.trim();
+            if (!phone) { showMsg('❌ Please enter your phone number.', 'error'); return; }
+
+            showMsg('⏳ Checking our system…', 'info');
+
+            fetch('/api/client/lookup', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ phone: phone })
+            })
+            .then(r => r.json())
+            .then(d => {
+                if (!d.success) {
+                    showMsg('❌ ' + d.message, 'error');
+                    return;
+                }
+                verifiedWallet = d.wallet;
+                verifiedBalance = d.balance;
+                verifiedWalletPsc = d.wallet_psc || 0;
+                verifiedBonus = d.bonus_psc || 0;
+
+                document.getElementById('itemsList').style.display = 'block';
+                document.getElementById('totalsBox').style.display = 'flex';
+                document.getElementById('walletBox').style.display = 'block';
+                document.getElementById('walletAddr').textContent = verifiedWallet;
+                document.getElementById('walletBal').textContent =
+                    verifiedBalance.toFixed(2) + ' PSC (Wallet: ' + verifiedWalletPsc.toFixed(2) + ' · Bonus: ' + verifiedBonus.toFixed(2) + ')';
+
+                if (d.returning && d.details) {
+                    document.getElementById('fname').value = d.details.name || '';
+                    document.getElementById('email').value = d.details.email || '';
+                    document.getElementById('address').value = d.details.address || '';
+                    document.getElementById('city').value = d.details.city || '';
+                    document.getElementById('landmark').value = d.details.landmark || '';
+                    showMsg('✅ Welcome back, <strong>' + (d.details.name || 'client') + '</strong>! Your details are pre-filled.', 'success');
+                } else {
+                    showMsg('🎉 New client! We created your wallet with <strong>' + verifiedBonus.toFixed(2) + ' bonus PSC</strong>. Fill your details below.', 'success');
+                }
+
+                document.getElementById('detailsForm').style.display = 'block';
+                refreshDiscountPreview();
+            })
+            .catch(e => showMsg('❌ Network error: ' + e, 'error'));
+        }
+
+        // ============================================================
+        // CHANGED: placeMultiOrder() no longer blocks on wallet_psc.
+        // It now opens the Savings/Bonus chooser modal instead.
+        // ============================================================
+        function placeMultiOrder() {
+            const name = document.getElementById('fname').value.trim();
+            const email = document.getElementById('email').value.trim();
+            const address = document.getElementById('address').value.trim();
+            const city = document.getElementById('city').value.trim();
+            const landmark = document.getElementById('landmark').value.trim();
+            const phone = document.getElementById('phone').value.trim();
+
+            if (!name || !phone || !address || !city) {
+                alert('Please fill all required (*) fields.');
+                return;
+            }
+
+            const payable = previewData ? previewData.payable_psc : grandTotal;
+
+            // ADDED: If the user's Purchased PSC alone can cover the order,
+            // we still show the modal (so they can consciously choose).
+            // The modal displays both balances and warns if total is short.
+            openSavingsModal(payable);
+        }
+
+        // ============================================================
+        // ADDED: Savings/Bonus chooser modal logic
+        // ============================================================
+        function openSavingsModal(payable) {
+            document.getElementById('modalPurchased').textContent = verifiedWalletPsc.toFixed(2) + ' PSC';
+            document.getElementById('modalBonus').textContent = verifiedBonus.toFixed(2) + ' PSC';
+            document.getElementById('modalTotal').textContent = (verifiedWalletPsc + verifiedBonus).toFixed(2) + ' PSC';
+            document.getElementById('modalPayable').textContent = payable.toFixed(2) + ' PSC';
+
+            const warn = document.getElementById('modalWarn');
+            const totalAvailable = verifiedWalletPsc + verifiedBonus;
+            if (totalAvailable < payable) {
+                warn.style.display = 'block';
+                warn.innerHTML = '⚠️ Your total balance (' + totalAvailable.toFixed(2) +
+                    ' PSC) is less than the order amount (' + payable.toFixed(2) +
+                    ' PSC). Please purchase more PSC or call 07962058133.';
+            } else {
+                warn.style.display = 'none';
+                warn.innerHTML = '';
+            }
+
+            document.getElementById('savingsModal').classList.add('show');
+            document.getElementById('savingsModal').dataset.payable = payable.toFixed(2);
+        }
+
+        function closeSavingsModal() {
+            document.getElementById('savingsModal').classList.remove('show');
+        }
+
+                async function confirmPayFrom(source) {
+            const phone = document.getElementById('phone').value.trim();
+            const itemsPayload = cart.map(c => ({ product_id: c.id, quantity: c.quantity }));
+
+            // ── STEP 1: Pre-flight validate for the chosen source ──
+            let validation;
+            try {
+                const r = await fetch('/api/checkout_validate', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        wallet: verifiedWallet,
+                        phone: phone,
+                        items: itemsPayload,
+                        source: source
+                    })
+                });
+                validation = await r.json();
+            } catch (e) {
+                alert('Could not verify balance: ' + e.message);
+                return;
+            }
+
+            // ── STEP 2A: Enough balance in the chosen source ──
+            if (validation.success) {
+                closeSavingsModal();
+                document.getElementById('confirmBtn').disabled = true;
+                document.getElementById('confirmBtn').textContent = 'Processing…';
+
+                fetch('/api/place_multi_order', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        wallet: verifiedWallet,
+                        items: itemsPayload,
+                        shipping: {
+                            name: document.getElementById('fname').value.trim(),
+                            phone: phone,
+                            email: document.getElementById('email').value.trim(),
+                            address: document.getElementById('address').value.trim(),
+                            city: document.getElementById('city').value.trim(),
+                            landmark: document.getElementById('landmark').value.trim(),
+                            payment_preference: source
+                        }
+                    })
+                })
+                .then(r => r.json())
+                .then(d => {
+                    if (d.success) {
+                        localStorage.removeItem('psc_cart');
+                        sessionStorage.removeItem('psc_checkout');
+                        window.location.href = '/order_success?order_id=' + d.order_id;
+                    } else {
+                        alert('❌ ' + d.message);
+                        document.getElementById('confirmBtn').disabled = false;
+                        document.getElementById('confirmBtn').textContent = 'Confirm & Pay';
+                    }
+                })
+                .catch(e => {
+                    alert('Error: ' + e);
+                    document.getElementById('confirmBtn').disabled = false;
+                    document.getElementById('confirmBtn').textContent = 'Confirm & Pay';
+                });
+                return;
+            }
+
+            // ── STEP 2B: DECLINE — the chosen source is empty ──
+            if (validation.decline) {
+                closeSavingsModal();
+                alert('❌ ' + validation.message);
+                return;
+            }
+
+            // ── STEP 2C: SHORTFALL — partial deduct + 2 buttons ──
+            closeSavingsModal();
+
+            let partial;
+            try {
+                const r = await fetch('/api/checkout_partial_pay', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        wallet: verifiedWallet,
+                        phone: phone,
+                        items: itemsPayload,
+                        source: source
+                    })
+                });
+                partial = await r.json();
+            } catch (e) {
+                alert('Could not process partial payment: ' + e.message);
+                return;
+            }
+
+            if (partial.decline) {
+                alert('❌ ' + partial.message);
+                return;
+            }
+            if (!partial.success) {
+                alert('❌ ' + (partial.message || 'Partial payment failed.'));
+                return;
+            }
+
+            showShortfallChoiceModal(partial, source);
+        }
+
+        function showShortfallChoiceModal(partial, source) {
+            const old = document.getElementById('shortfallModal');
+            if (old) old.remove();
+
+            const sourceLabel = source === 'savings'
+                ? 'Savings (Purchased PSC)'
+                : 'Bonus PSC';
+
+            const html = `
+                <div id="shortfallModal" class="modal-bg show">
+                    <div class="modal" style="max-width:540px;">
+                        <h2>Top-up needed to complete this order</h2>
+                        <p class="sub2">We've already applied your ${sourceLabel} to this order.
+                           Top up the remaining amount to complete it now, or decline to cancel.</p>
+
+                        <div class="bal-grid">
+                            <div class="bal-row savings">
+                                <span class="lbl">Paid from ${sourceLabel}</span>
+                                <span class="val" style="color:#198754;">${partial.paid_psc.toFixed(2)} PSC</span>
+                            </div>
+                            <div class="bal-row savings">
+                                <span class="lbl">Paid value</span>
+                                <span class="val" style="color:#198754;">KES ${partial.paid_kes.toFixed(2)}</span>
+                            </div>
+                            <div class="bal-row total" style="border-left-color:#dc3545;background:#fee2e2;">
+                                <span class="lbl" style="color:#991b1b;">Remaining to pay</span>
+                                <span class="val" style="color:#991b1b;">${partial.remaining_psc.toFixed(2)} PSC</span>
+                            </div>
+                            <div class="bal-row total" style="border-left-color:#dc3545;background:#fee2e2;">
+                                <span class="lbl" style="color:#991b1b;">Remaining in KES</span>
+                                <span class="val" style="color:#991b1b;">KES ${partial.remaining_kes.toFixed(2)}</span>
+                            </div>
+                        </div>
+
+                        <div style="background:#f0f4ff;padding:12px 14px;border-radius:8px;border-left:4px solid #667eea;margin-bottom:16px;font-size:0.9rem;">
+                            <strong>Rate:</strong> 1 PSC = KES ${partial.psc_to_kes_rate}<br>
+                            <strong>Order total:</strong> ${partial.payable_psc.toFixed(2)} PSC (KES ${partial.payable_kes.toFixed(2)})<br>
+                            <strong>Paid so far:</strong> ${partial.paid_psc.toFixed(2)} PSC<br>
+                            <strong>Still owed:</strong> ${partial.remaining_psc.toFixed(2)} PSC = KES ${partial.remaining_kes.toFixed(2)}
+                        </div>
+
+                        <div class="choose-btns">
+                            <button class="btn-cancel2" onclick="declineShortfall()">
+                                ✖ Decline and cancel
+                            </button>
+                            <button class="btn-savings" onclick="proceedShortfallTopup(${partial.remaining_kes})">
+                                ✔ Proceed to top up KES ${partial.remaining_kes.toFixed(2)}
+                            </button>
+                        </div>
+
+                        <div class="hint">
+                            "Proceed" opens the secure Flutterwave checkout for KES ${partial.remaining_kes.toFixed(2)}.
+                            Once paid, the PSC is credited to your wallet and you can complete this order.
+                        </div>
+                    </div>
+                </div>
+            `;
+
+            const wrap = document.createElement('div');
+            wrap.innerHTML = html;
+            document.body.appendChild(wrap.firstElementChild);
+        }
+
+        function declineShortfall() {
+            closeShortfallModal();
+            alert('Order cancelled. Any PSC already applied to this order is safe in your wallet.');
+        }
+
+        function closeShortfallModal() {
+            const m = document.getElementById('shortfallModal');
+            if (m) m.remove();
+        }
+
+        async function proceedShortfallTopup(amountKes) {
+            try {
+                const r = await fetch('/api/psc/topup/initiate', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        wallet: verifiedWallet,
+                        amount_kes: amountKes,
+                        redirect_url: window.location.origin + '/cart_checkout?wallet=' + encodeURIComponent(verifiedWallet)
+                    })
+                });
+                const d = await r.json();
+                if (!d.success) {
+                    alert('❌ ' + (d.message || 'Could not start top-up.'));
+                    return;
+                }
+                window.location.href = d.checkout_url;
+            } catch (e) {
+                alert('Top-up error: ' + e.message);
+            }
+        }
+        // END ADDED
+        // ============================================================
+
+        renderCart();
+    </script>
+</body>
+</html>

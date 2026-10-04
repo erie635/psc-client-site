@@ -1,0 +1,40 @@
+﻿<!DOCTYPE html><html><head><title>PSC Top-Up</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="stylesheet" href="/static/style.css">
+<style>
+  body{font-family:Segoe UI,Arial,sans-serif;background:#f4f6f9;padding:40px 20px;margin:0;text-align:center}
+  .box{max-width:520px;margin:auto;background:white;padding:30px;border-radius:14px;
+       box-shadow:0 6px 30px rgba(0,0,0,.08)}
+  h2{margin:0 0 12px}
+  .s{padding:12px;border-radius:8px;margin-top:12px;font-weight:600}
+  .ok{background:#d4edda;color:#155724}
+  .err{background:#f8d7da;color:#721c24}
+  .info{background:#d1ecf1;color:#0c5460}
+  a.btn{display:inline-block;margin-top:18px;background:#667eea;color:#fff;padding:12px 22px;
+        border-radius:8px;text-decoration:none;font-weight:700}
+</style></head><body>
+<div class="box">
+  <h2>PSC Top-Up</h2>
+  <div id="msg" class="s info">Verifying your payment...</div>
+  <a class="btn" href="/">Back to shop</a>
+</div>
+<script>
+(function(){
+  const qs = new URLSearchParams(location.search);
+  const txRef = qs.get('tx_ref') || qs.get('reference');
+  const txId  = qs.get('transaction_id') || qs.get('id');
+  const el = document.getElementById('msg');
+  if (!txRef || !txId) {
+    el.className='s err';
+    el.textContent='Missing payment reference. If you paid, contact the shop with your M-PESA code.';
+    return;
+  }
+  fetch('/api/psc/topup/verify', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({tx_ref: txRef, transaction_id: txId})
+  }).then(r=>r.json()).then(d=>{
+    el.className = 's ' + (d.success ? 'ok' : 'err');
+    el.textContent = (d.success ? '✅ ' : '❌ ') + (d.message || '');
+  }).catch(e=>{ el.className='s err'; el.textContent='Verify error: '+e; });
+})();
+</script></body></html>

@@ -1,0 +1,3257 @@
+﻿<!DOCTYPE html>
+<html>
+<head>
+    <title>PSC - Pulse Shopping Coin</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: #f5f6fa;
+            min-height: 100vh;
+        }
+
+        /* ============ COMPANY BAR ============ */
+        .company-bar {
+            background: #1a1a2e;
+            color: #fff;
+            padding: 6px 30px;
+            font-size: 0.82rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+        .company-bar .left-info { display: flex; gap: 20px; flex-wrap: wrap; align-items: center; }
+        .company-bar .left-info span { opacity: 0.85; }
+        .company-bar .right-info { display: flex; gap: 15px; align-items: center; flex-wrap: wrap; }
+        .company-bar a { color: #a5b4fc; text-decoration: none; font-weight: 600; }
+        .company-bar a:hover { color: #fff; }
+        .company-bar .sell-badge {
+            background: #ff6b35;
+            padding: 3px 10px;
+            border-radius: 12px;
+            font-weight: bold;
+            font-size: 0.78rem;
+        }
+
+        /* ============ TOPBAR ============ */
+        .topbar {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 14px 30px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 15px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+        .topbar h1 { font-size: 1.4rem; font-weight: bold; cursor: pointer; }
+        .topbar .right-tools {
+            display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+        }
+        .topbar .wallet-chip {
+            background: rgba(255,255,255,0.2);
+            padding: 8px 16px;
+            border-radius: 25px;
+            font-weight: bold;
+            display: flex; align-items: center; gap: 8px;
+            font-size: 0.9rem;
+        }
+        .topbar .live-dot {
+            width: 8px; height: 8px;
+            background: #4ade80;
+            border-radius: 50%;
+            animation: pulse 1.5s infinite;
+        }
+        @keyframes pulse {
+            0%, 100% { opacity: 1; transform: scale(1); }
+            50% { opacity: 0.5; transform: scale(1.3); }
+        }
+        .topbar .account-btn {
+            background: rgba(255,255,255,0.18);
+            border: 1px solid rgba(255,255,255,0.35);
+            color: white;
+            padding: 8px 16px;
+            border-radius: 25px;
+            font-weight: 600;
+            cursor: pointer;
+            font-size: 0.9rem;
+        }
+        .topbar .account-btn:hover { background: rgba(255,255,255,0.3); }
+
+        /* ============ 3-DOT MENU ============ */
+        .three-dot-wrap { position: relative; }
+        .three-dot-btn {
+            background: rgba(255,255,255,0.18);
+            border: 1px solid rgba(255,255,255,0.35);
+            color: white;
+            width: 40px; height: 40px;
+            border-radius: 50%;
+            font-size: 1.3rem;
+            font-weight: bold;
+            cursor: pointer;
+            display: flex; align-items: center; justify-content: center;
+        }
+        .three-dot-btn:hover { background: rgba(255,255,255,0.3); }
+        .three-dot-menu {
+            display: none;
+            position: absolute;
+            right: 0; top: 48px;
+            background: white;
+            color: #333;
+            border-radius: 10px;
+            box-shadow: 0 8px 30px rgba(0,0,0,0.18);
+            min-width: 240px;
+            padding: 8px 0;
+            z-index: 200;
+        }
+        .three-dot-menu.open { display: block; }
+        .three-dot-menu .menu-title {
+            padding: 8px 16px;
+            font-size: 0.78rem;
+            color: #888;
+            text-transform: uppercase;
+            font-weight: bold;
+            letter-spacing: 0.5px;
+        }
+        .three-dot-menu a {
+            display: flex; align-items: center; gap: 10px;
+            padding: 10px 16px;
+            color: #333;
+            text-decoration: none;
+            font-size: 0.9rem;
+            cursor: pointer;
+        }
+        .three-dot-menu a:hover { background: #f3f4f6; color: #667eea; }
+
+        .container { max-width: 1300px; margin: 0 auto; padding: 20px; }
+        .card {
+            background: white;
+            border-radius: 12px;
+            padding: 20px;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+        }
+
+        /* ============ HERO CAROUSEL ============ */
+        .hero-wrap {
+            position: relative;
+            border-radius: 14px;
+            overflow: hidden;
+            margin-bottom: 22px;
+            box-shadow: 0 6px 24px rgba(0,0,0,0.14);
+            background: #111;
+            height: 340px;
+        }
+        .hero-track {
+            display: flex;
+            height: 100%;
+            transition: transform 0.7s cubic-bezier(.4,.1,.2,1);
+            will-change: transform;
+        }
+        .hero-slide {
+            min-width: 100%;
+            height: 100%;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 30px 70px;
+            color: #fff;
+            position: relative;
+            overflow: hidden;
+        }
+        .hero-slide.hero-color-0 { background: linear-gradient(135deg, #667eea 0%, #1a1a2e 100%); }
+        .hero-slide.hero-color-1 { background: linear-gradient(135deg, #764ba2 0%, #1a1a2e 100%); }
+        .hero-slide.hero-color-2 { background: linear-gradient(135deg, #1a1a2e 0%, #1a1a2e 100%); }
+        .hero-slide.hero-color-3 { background: linear-gradient(135deg, #ff6b35 0%, #1a1a2e 100%); }
+        .hero-slide.hero-color-4 { background: linear-gradient(135deg, #10b981 0%, #1a1a2e 100%); }
+        .hero-slide.hero-color-5 { background: linear-gradient(135deg, #f59e0b 0%, #1a1a2e 100%); }
+        .hero-slide::before {
+            content: '';
+            position: absolute;
+            inset: 0;
+            background: linear-gradient(90deg, rgba(0,0,0,0.75) 0%, rgba(0,0,0,0.35) 55%, rgba(0,0,0,0.05) 100%);
+            z-index: 1;
+        }
+        .hero-slide .hero-text {
+            position: relative;
+            z-index: 2;
+            max-width: 55%;
+        }
+        .hero-slide .hero-tag {
+            display: inline-block;
+            background: #ff6b35;
+            color: #fff;
+            font-size: 0.72rem;
+            font-weight: bold;
+            padding: 4px 12px;
+            border-radius: 12px;
+            letter-spacing: 0.5px;
+            margin-bottom: 12px;
+            text-transform: uppercase;
+            animation: fadeUp 0.6s ease both;
+        }
+        .hero-slide .hero-title {
+            font-size: 2.1rem;
+            font-weight: 800;
+            line-height: 1.15;
+            margin-bottom: 12px;
+            text-shadow: 0 2px 10px rgba(0,0,0,0.4);
+            animation: fadeUp 0.7s 0.1s ease both;
+        }
+        .hero-slide .hero-price {
+            font-size: 1.5rem;
+            font-weight: bold;
+            margin-bottom: 4px;
+            animation: fadeUp 0.7s 0.2s ease both;
+        }
+        .hero-slide .hero-kes {
+            font-size: 0.95rem;
+            opacity: 0.85;
+            margin-bottom: 18px;
+            animation: fadeUp 0.7s 0.25s ease both;
+        }
+        .hero-slide .hero-cta {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            background: #fff;
+            color: #1a1a2e;
+            padding: 12px 26px;
+            border: none;
+            border-radius: 30px;
+            font-size: 0.95rem;
+            font-weight: bold;
+            cursor: pointer;
+            text-decoration: none;
+            transition: transform 0.2s, box-shadow 0.2s;
+            animation: fadeUp 0.7s 0.3s ease both;
+        }
+        .hero-slide .hero-cta:hover {
+            transform: translateX(3px);
+            box-shadow: 0 6px 18px rgba(255,255,255,0.3);
+        }
+        .hero-slide .hero-img-box {
+            position: relative;
+            z-index: 2;
+            width: 320px;
+            height: 280px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            animation: floatY 4s ease-in-out infinite;
+        }
+        .hero-slide .hero-img-box img {
+            max-width: 100%;
+            max-height: 100%;
+            object-fit: contain;
+            border-radius: 12px;
+            filter: drop-shadow(0 12px 24px rgba(0,0,0,0.5));
+        }
+        @keyframes fadeUp {
+            from { opacity: 0; transform: translateY(14px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        @keyframes floatY {
+            0%, 100% { transform: translateY(0); }
+            50% { transform: translateY(-10px); }
+        }
+
+        .hero-arrow {
+            position: absolute;
+            top: 50%;
+            transform: translateY(-50%);
+            z-index: 5;
+            width: 44px;
+            height: 44px;
+            border-radius: 50%;
+            background: rgba(255,255,255,0.9);
+            border: none;
+            color: #1a1a2e;
+            font-size: 1.3rem;
+            font-weight: bold;
+            cursor: pointer;
+            display: flex; align-items: center; justify-content: center;
+            box-shadow: 0 4px 14px rgba(0,0,0,0.3);
+            transition: background 0.2s, transform 0.2s;
+        }
+        .hero-arrow:hover { background: #fff; transform: translateY(-50%) scale(1.08); }
+        .hero-arrow.left { left: 16px; }
+        .hero-arrow.right { right: 16px; }
+
+        .hero-dots {
+            position: absolute;
+            bottom: 14px;
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: 5;
+            display: flex;
+            gap: 8px;
+        }
+        .hero-dots .dot {
+            width: 9px;
+            height: 9px;
+            border-radius: 50%;
+            background: rgba(255,255,255,0.45);
+            cursor: pointer;
+            transition: all 0.25s;
+        }
+        .hero-dots .dot.active {
+            background: #fff;
+            width: 26px;
+            border-radius: 5px;
+        }
+
+        .hero-progress {
+            position: absolute;
+            bottom: 0; left: 0;
+            height: 3px;
+            width: 0%;
+            background: linear-gradient(90deg, #667eea, #764ba2);
+            z-index: 6;
+            transition: width 0.1s linear;
+        }
+
+        /* ============ SEARCH ============ */
+        .search-bar {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 15px;
+            flex-wrap: wrap;
+        }
+        .search-bar input {
+            flex: 1 1 300px;
+            padding: 14px 18px;
+            border: 2px solid #e5e7eb;
+            border-radius: 10px;
+            font-size: 1rem;
+        }
+        .search-bar input:focus { outline: none; border-color: #667eea; }
+        .search-bar button {
+            padding: 14px 30px;
+            background: #667eea;
+            color: white;
+            border: none;
+            border-radius: 10px;
+            font-size: 1rem;
+            font-weight: bold;
+            cursor: pointer;
+        }
+        .search-bar button:hover { background: #5568c4; }
+
+        /* ============ CATEGORY CIRCLES ============ */
+        .category-circles {
+            display: flex;
+            gap: 20px;
+            overflow-x: auto;
+            padding: 20px 5px;
+            scroll-behavior: smooth;
+        }
+        .category-circles::-webkit-scrollbar { height: 6px; }
+        .category-circles::-webkit-scrollbar-thumb { background: #c7d2fe; border-radius: 3px; }
+
+        .cat-circle {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 8px;
+            min-width: 105px;
+            cursor: pointer;
+            flex-shrink: 0;
+            transition: transform 0.2s;
+        }
+        .cat-circle:hover { transform: translateY(-4px); }
+        .cat-circle .circle {
+            width: 92px; height: 92px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 2.3rem;
+            border: 3px solid #e5e7eb;
+            background: #fff;
+            transition: border-color 0.2s, box-shadow 0.2s;
+        }
+        .cat-circle:hover .circle {
+            border-color: #667eea;
+            box-shadow: 0 4px 14px rgba(102,126,234,0.3);
+        }
+        .cat-circle.active .circle {
+            border-color: #28a745;
+            box-shadow: 0 4px 14px rgba(40,167,69,0.35);
+        }
+        .cat-circle .cat-name {
+            font-size: 0.82rem;
+            text-align: center;
+            color: #333;
+            font-weight: 600;
+            max-width: 100px;
+            line-height: 1.2;
+        }
+
+        /* ============ ROWS ============ */
+        .row-section { margin-bottom: 25px; }
+        .row-section h2 {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 1.25rem;
+            color: #1a1a2e;
+            margin-bottom: 12px;
+            padding-bottom: 6px;
+            border-bottom: 2px solid #f0f0f8;
+        }
+        .row-section h2 .see-all {
+            font-size: 0.85rem;
+            color: #667eea;
+            cursor: pointer;
+            font-weight: 600;
+        }
+        .row-section h2 .see-all:hover { color: #764ba2; }
+
+        .scroll-row {
+            display: flex;
+            gap: 14px;
+            overflow-x: auto;
+            padding: 6px 3px 15px;
+            scroll-behavior: smooth;
+        }
+        .scroll-row::-webkit-scrollbar { height: 6px; }
+        .scroll-row::-webkit-scrollbar-thumb { background: #c7d2fe; border-radius: 3px; }
+        .scroll-row .product {
+            min-width: 190px;
+            max-width: 190px;
+            flex-shrink: 0;
+        }
+
+        /* ============ PRODUCTS GRID ============ */
+        .products {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+            gap: 18px;
+        }
+        .product {
+            background: white;
+            border-radius: 12px;
+            padding: 15px;
+            transition: all 0.2s;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+            display: flex;
+            flex-direction: column;
+            position: relative;
+            overflow: hidden;
+        }
+        .product:hover { box-shadow: 0 8px 20px rgba(0,0,0,0.12); transform: translateY(-3px); }
+        .product.in-cart {
+            border: 2px solid #28a745;
+            background: #f0fdf4;
+        }
+        .product.in-cart::after {
+            content: '✓';
+            position: absolute;
+            top: 10px; left: 10px;
+            background: #28a745;
+            color: white;
+            width: 26px; height: 26px;
+            border-radius: 50%;
+            display: flex; align-items: center; justify-content: center;
+            font-weight: bold;
+            font-size: 0.9rem;
+            z-index: 2;
+        }
+        .product.new-arrival::before {
+            content: 'NEW';
+            position: absolute;
+            top: 10px; right: 10px;
+            background: #ff6b35;
+            color: white;
+            font-size: 0.7rem;
+            font-weight: bold;
+            padding: 4px 10px;
+            border-radius: 12px;
+            letter-spacing: 0.5px;
+            box-shadow: 0 2px 6px rgba(255,107,53,0.4);
+            z-index: 2;
+            animation: pulse-new 2s infinite;
+        }
+        @keyframes pulse-new {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.05); }
+        }
+        .product img, .product .ph {
+            width: 100%;
+            height: 160px;
+            object-fit: contain;
+            background: #fafafa;
+            border-radius: 8px;
+            margin-bottom: 10px;
+        }
+        .product .ph {
+            display: flex; align-items: center; justify-content: center;
+            color: #ccc; font-size: 3rem;
+        }
+        .product h3 {
+            font-size: 0.9rem;
+            color: #333;
+            margin-bottom: 8px;
+            line-height: 1.4;
+            flex: 1;
+            overflow: hidden;
+            display: -webkit-box;
+            line-clamp: 3;
+            -webkit-line-clamp: 3;
+            -webkit-box-orient: vertical;
+        }
+        .product .price {
+            color: #28a745;
+            font-size: 1.3rem;
+            font-weight: bold;
+            margin-bottom: 3px;
+        }
+        .product .kes { color: #888; font-size: 0.85rem; margin-bottom: 12px; }
+        .product .actions { display: flex; gap: 8px; }
+        .product button.add-cart {
+            flex: 1;
+            padding: 11px;
+            background: #764ba2;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-weight: bold;
+            cursor: pointer;
+            font-size: 0.9rem;
+        }
+        .product button.add-cart:hover { background: #5a3d7a; }
+        .product button.add-cart.selected { background: #28a745; }
+        .product button.add-cart.selected:hover { background: #dc3545; }
+        .product button.buy-now {
+            padding: 11px 14px;
+            background: #f0f4ff;
+            color: #667eea;
+            border: none;
+            border-radius: 8px;
+            font-weight: bold;
+            cursor: pointer;
+            font-size: 0.9rem;
+        }
+        .product button.buy-now:hover { background: #e0e8ff; }
+
+
+        /* ============ CART PANEL ============ */
+        .cart-panel {
+            background: linear-gradient(135deg, #764ba2 0%, #667eea 100%);
+            color: white;
+            border-radius: 12px;
+            padding: 10px;
+            margin-bottom: 20px;
+            box-shadow: 0 4px 16px rgba(118,75,162,0.25);
+            transition: padding 0.25s ease;
+        }
+        .cart-panel h2,
+        .cart-panel.empty h2 {
+            color: #ffffff;
+        }
+        .cart-panel h2 .count,
+        .cart-panel.empty h2 .count {
+            color: #ffffff;
+        }
+        .cart-panel.empty {
+            padding: 6px 14px;
+            margin-bottom: 12px;
+            border-radius: 30px;
+            box-shadow: 0 2px 8px rgba(118,75,162,0.20);
+            width: fit-content;
+            min-width: 240px;
+            display: inline-block;
+        }
+        .cart-panel.empty h2 {
+            margin-bottom: 0;
+            font-size: 0.88rem;
+            gap: 10px;
+        }
+        .cart-panel.empty h2 .count {
+            padding: 2px 8px;
+            font-size: 0.75rem;
+        }
+        .cart-panel.empty .cart-items,
+        .cart-panel.empty .cart-footer {
+            display: none;
+        }
+        .cart-panel h2 {
+            display: flex; justify-content: space-between; align-items: center;
+            margin-bottom: 12px;
+            font-size: 1.2rem;
+        }
+        .cart-panel h2 .count {
+            background: rgba(255,255,255,0.25);
+            padding: 4px 12px;
+            border-radius: 15px;
+            font-size: 0.9rem;
+        }
+        .cart-items { margin-bottom: 15px; }
+        .cart-item {
+            background: rgba(255,255,255,0.12);
+            padding: 12px 15px;
+            border-radius: 8px;
+            margin-bottom: 8px;
+            display: flex; justify-content: space-between; align-items: center;
+            gap: 10px; flex-wrap: wrap;
+        }
+        .cart-item .name { flex: 1; font-weight: 600; font-size: 0.95rem; min-width: 150px; }
+        .cart-item .qty {
+            display: flex; align-items: center; gap: 6px;
+            background: rgba(0,0,0,0.15);
+            border-radius: 6px; padding: 4px;
+        }
+        .cart-item .qty button {
+            width: 26px; height: 26px;
+            border: none;
+            background: white;
+            color: #764ba2;
+            font-weight: bold;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 1rem;
+        }
+        .cart-item .qty span { min-width: 25px; text-align: center; font-weight: bold; }
+        .cart-item .sub { font-weight: bold; min-width: 90px; text-align: right; }
+        .cart-item .remove {
+            background: #dc3545;
+            color: white; border: none;
+            width: 26px; height: 26px;
+            border-radius: 5px; cursor: pointer; font-size: 0.85rem;
+        }
+        .cart-empty { text-align: center; padding: 20px; opacity: 0.85; font-size: 0.95rem; }
+        .cart-footer {
+            display: flex; justify-content: space-between; align-items: center;
+            flex-wrap: wrap; gap: 12px;
+            padding-top: 12px;
+            border-top: 1px solid rgba(255,255,255,0.2);
+        }
+        .cart-footer .total-label { font-size: 1rem; }
+        .cart-footer .total-amount { font-size: 1.5rem; font-weight: bold; }
+        .cart-footer button {
+            padding: 14px 32px;
+            background: #28a745;
+            color: white; border: none;
+            border-radius: 10px;
+            font-size: 1rem; font-weight: bold; cursor: pointer;
+        }
+        .cart-footer button:hover { background: #1f8a37; }
+        .cart-footer button:disabled { background: #999; cursor: not-allowed; }
+
+        /* ============ MODAL ============ */
+        .modal-backdrop {
+            display: none;
+            position: fixed;
+            inset: 0;
+            background: rgba(0,0,0,0.55);
+            z-index: 999;
+            align-items: center;
+            justify-content: center;
+            padding: 15px;
+        }
+        .modal-backdrop.open { display: flex; }
+        .modal {
+            background: white;
+            border-radius: 14px;
+            padding: 25px;
+            width: 100%;
+            max-width: 420px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            animation: modalIn 0.25s ease;
+        }
+        @keyframes modalIn {
+            from { opacity: 0; transform: translateY(15px) scale(0.97); }
+            to { opacity: 1; transform: translateY(0) scale(1); }
+        }
+        .modal h2 { color: #1a1a2e; margin-bottom: 6px; font-size: 1.35rem; }
+        .modal p.sub { color: #666; font-size: 0.9rem; margin-bottom: 18px; }
+        .modal .field { margin-bottom: 12px; }
+        .modal .field label {
+            display: block; font-size: 0.85rem; color: #444;
+            margin-bottom: 5px; font-weight: 600;
+        }
+        .modal .field input {
+            width: 100%;
+            padding: 11px 14px;
+            border: 2px solid #e5e7eb;
+            border-radius: 8px;
+            font-size: 0.95rem;
+        }
+        .modal .field input:focus { outline: none; border-color: #667eea; }
+        .modal .primary-btn {
+            width: 100%;
+            padding: 13px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white; border: none;
+            border-radius: 9px;
+            font-size: 1rem; font-weight: bold; cursor: pointer;
+            margin-top: 6px;
+        }
+        .modal .primary-btn:hover { opacity: 0.92; }
+        .modal .switch-line {
+            text-align: center; margin-top: 15px;
+            font-size: 0.88rem; color: #666;
+        }
+        .modal .switch-line a {
+            color: #667eea; font-weight: bold;
+            cursor: pointer; text-decoration: none;
+        }
+        .modal .switch-line a:hover { text-decoration: underline; }
+        .modal .close-x {
+            float: right;
+            background: none; border: none;
+            font-size: 1.4rem; color: #999; cursor: pointer; line-height: 1;
+        }
+        .modal .error-msg {
+            color: #dc3545; font-size: 0.88rem;
+            margin-bottom: 10px; display: none;
+        }
+
+        /* ============ MISC ============ */
+        .empty { text-align: center; padding: 60px 20px; color: #999; }
+        .empty .big { font-size: 4rem; margin-bottom: 15px; }
+        .fade-in { animation: fadeIn 0.4s ease-in; }
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(5px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .welcome-banner {
+            background: linear-gradient(90deg, #ecfdf5, #f0fdf4);
+            border-left: 4px solid #10b981;
+            padding: 10px 16px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            display: flex; justify-content: space-between; align-items: center;
+            font-size: 0.9rem; color: #065f46; font-weight: 500;
+        }
+
+        @media (max-width: 800px) {
+            .hero-wrap { height: 420px; }
+            .hero-slide { padding: 20px 30px; flex-direction: column; align-items: flex-start; }
+            .hero-slide .hero-text { max-width: 100%; }
+            .hero-slide .hero-title { font-size: 1.4rem; }
+            .hero-slide .hero-img-box { width: 180px; height: 160px; margin-top: 12px; align-self: center; }
+            .hero-arrow { width: 36px; height: 36px; font-size: 1.1rem; }
+        }
+
+        @media (max-width: 600px) {
+            .topbar { padding: 12px 15px; }
+            .topbar h1 { font-size: 1.1rem; }
+            .products { grid-template-columns: 1fr 1fr; }
+            .cart-item .name { font-size: 0.85rem; }
+            .company-bar { padding: 6px 15px; font-size: 0.75rem; }
+            .cat-circle .circle { width: 72px; height: 72px; font-size: 1.8rem; }
+            .cat-circle { min-width: 85px; }
+        }
+
+        /* ============================================================
+           PSC FIX PACK — LAST IN CASCADE (do not move above other rules)
+           Cart expansion + click-through protection.
+           CSS-only. No JS / HTML / Jinja changes.
+           ============================================================ */
+
+        .cart-panel:not(.empty) {
+            display: block;
+            width: auto;
+            min-width: 0;
+            padding: 10px;
+            border-radius: 12px;
+            margin-bottom: 20px;
+            box-shadow: 0 4px 16px rgba(118,75,162,0.25);
+        }
+
+        .cart-panel   { position: relative; z-index: 1; }
+        .hero-wrap    { position: relative; z-index: 2; }
+        .hero-arrow   { z-index: 6; }
+        .scroll-row,
+        .products,
+        .product      { position: relative; z-index: 1; }
+
+        .product button,
+        .product button.add-cart,
+        .product button.buy-now,
+        .cart-item button,
+        .cart-footer button {
+            pointer-events: auto;
+            position: relative;
+            z-index: 2;
+        }
+
+        .topbar { z-index: 100; }
+
+        #pscWalletPanel { pointer-events: auto; }
+        #pscWalletPanel[style*="display:none"] { pointer-events: none; }
+        /* ============================================================ */
+    
+/* ============================================================
+   WALLET 3-DOT MENU — compact, drop-down.
+   Additive. Does not touch any existing logic.
+   ============================================================ */
+.psc-wallet-wrap {
+  position: relative;
+  flex-shrink: 0;
+  align-self: center;
+  margin-left: 12px;
+  display: inline-block;
+  padding: 0 !important;
+  background: transparent !important;
+  border: 0 !important;
+  box-shadow: none !important;
+}
+.psc-wallet-dots {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  border: 2px solid #dbe4f7;
+  background: #ffffff;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  box-shadow: 0 2px 6px rgba(15,23,42,0.08);
+  transition: border-color 0.2s, box-shadow 0.2s, transform 0.15s;
+  padding: 0;
+}
+.psc-wallet-dots:hover {
+  border-color: #667eea;
+  box-shadow: 0 4px 14px rgba(102,126,234,0.28);
+  transform: translateY(-1px);
+}
+.psc-wallet-dots[aria-expanded="true"] {
+  border-color: #667eea;
+  background: #f5f7ff;
+}
+.psc-wallet-dots > span {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: #1f3a8a;
+  display: block;
+}
+.psc-wallet-menu {
+  position: absolute;
+  top: 56px;
+  right: 0;
+  min-width: 220px;
+  background: #ffffff;
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
+  box-shadow: 0 12px 32px rgba(15,23,42,0.14);
+  padding: 8px 0;
+  z-index: 500;
+  animation: pscWalletMenuIn 0.18s ease;
+}
+@keyframes pscWalletMenuIn {
+  from { opacity: 0; transform: translateY(-6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.psc-wallet-menu[hidden] { display: none; }
+.psc-wallet-menu-title {
+  padding: 6px 16px 8px;
+  font-size: 0.72rem;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  font-weight: 700;
+  color: #94a3b8;
+  border-bottom: 1px solid #f1f5f9;
+  margin-bottom: 4px;
+}
+.psc-wallet-menu a {
+  display: block;
+  padding: 10px 16px;
+  color: #1a1a2e;
+  font-size: 0.92rem;
+  font-weight: 600;
+  text-decoration: none;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+.psc-wallet-menu a:hover {
+  background: #f3f4f6;
+  color: #667eea;
+}
+.psc-wallet-menu a + a {
+  border-top: 1px solid #f8fafc;
+}
+    
+/* ============================================================
+   WALLET BALANCE GRID — horizontal scroll (overrides inline grid)
+   ============================================================ */
+#pscBalanceGrid {
+  display: flex !important;
+  flex-wrap: nowrap !important;
+  grid-template-columns: none !important;
+  gap: 10px !important;
+  overflow-x: auto !important;
+  overflow-y: hidden !important;
+  padding-bottom: 8px;
+  -webkit-overflow-scrolling: touch;
+  scroll-behavior: smooth;
+}
+#pscBalanceGrid::-webkit-scrollbar { height: 6px; }
+#pscBalanceGrid::-webkit-scrollbar-thumb { background: #c7d2fe; border-radius: 3px; }
+#pscBalanceGrid::-webkit-scrollbar-track { background: transparent; }
+#pscBalanceGrid > div {
+  flex: 0 0 160px !important;
+  min-width: 160px !important;
+  max-width: 160px !important;
+  box-sizing: border-box;
+}
+
+/* ============================================================
+   WALLET VIEWS — horizontal strip for Deposit / Withdraw / PayLink
+   Matches the Balance grid layout. Additive only.
+   ============================================================ */
+#pscPanel [data-psc-view="deposit"]  > div,
+#pscPanel [data-psc-view="withdraw"] > div,
+#pscPanel [data-psc-view="paylink"]  > div {
+  display: flex !important;
+  flex-wrap: nowrap !important;
+  align-items: center;
+  gap: 10px !important;
+  overflow-x: auto !important;
+  overflow-y: hidden !important;
+  padding-bottom: 8px;
+  margin-bottom: 6px !important;
+  -webkit-overflow-scrolling: touch;
+  scroll-behavior: smooth;
+}
+#pscPanel [data-psc-view="deposit"]  > div::-webkit-scrollbar,
+#pscPanel [data-psc-view="withdraw"] > div::-webkit-scrollbar,
+#pscPanel [data-psc-view="paylink"]  > div::-webkit-scrollbar { height: 6px; }
+#pscPanel [data-psc-view="deposit"]  > div::-webkit-scrollbar-thumb,
+#pscPanel [data-psc-view="withdraw"] > div::-webkit-scrollbar-thumb,
+#pscPanel [data-psc-view="paylink"]  > div::-webkit-scrollbar-thumb {
+  background: #c7d2fe; border-radius: 3px;
+}
+#pscPanel [data-psc-view="deposit"]  > div::-webkit-scrollbar-track,
+#pscPanel [data-psc-view="withdraw"] > div::-webkit-scrollbar-track,
+#pscPanel [data-psc-view="paylink"]  > div::-webkit-scrollbar-track { background: transparent; }
+
+#pscPanel [data-psc-view="deposit"]  input,
+#pscPanel [data-psc-view="deposit"]  select,
+#pscPanel [data-psc-view="withdraw"] input,
+#pscPanel [data-psc-view="withdraw"] select,
+#pscPanel [data-psc-view="paylink"]  input,
+#pscPanel [data-psc-view="paylink"]  select {
+  flex: 0 0 200px !important;
+  min-width: 200px !important;
+  max-width: 200px !important;
+  box-sizing: border-box;
+}
+#pscPanel [data-psc-view="deposit"] label {
+  flex: 0 0 auto !important;
+  white-space: nowrap;
+  margin: 0;
+}
+#pscPanel [data-psc-view="deposit"]  button,
+#pscPanel [data-psc-view="withdraw"] button,
+#pscPanel [data-psc-view="paylink"]  button {
+  flex: 0 0 auto !important;
+  white-space: nowrap;
+}
+#pscWdBandFields {
+  display: flex !important;
+  flex-wrap: nowrap !important;
+  gap: 8px !important;
+  overflow-x: auto !important;
+  padding-bottom: 8px;
+}
+#pscWdBandFields input {
+  flex: 0 0 200px !important;
+  min-width: 200px !important;
+  max-width: 200px !important;
+}
+
+/* ============================================================
+   PAYMENT LINK TABS — collapsible lists
+   Pure UI. Does not touch any backend logic.
+   ============================================================ */
+#pscLinkTabs a { transition: color 0.15s; }
+#pscLinkTabs a[data-active="true"]  { color: #1a1a2e !important; font-weight: 800 !important; text-decoration: underline; }
+#pscLinkTabs a[data-active="false"] { color: #64748b !important; font-weight: 600 !important; }
+#pscLinkTabs a:hover                { color: #1f3a8a !important; }
+
+#pscLinkListWrap { transition: opacity 0.2s ease; }
+#pscLinkListWrap[data-open="true"]  { display: block !important; animation: pscLinkFadeIn 0.2s ease; }
+#pscLinkListWrap[data-open="false"] { display: none !important; }
+@keyframes pscLinkFadeIn {
+  from { opacity: 0; transform: translateY(-4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.psc-paylink-wide { width: 100% !important; box-sizing: border-box; }
+
+.psc-link-card-paid    { border-left: 4px solid #10b981 !important; background: #f0fdf4 !important; }
+.psc-link-card-revoked { border-left: 4px solid #ef4444 !important; background: #fef2f2 !important; }
+
+#pscLinkListInner {
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 12px;
+  overflow-x: auto;
+  padding-bottom: 8px;
+  scroll-behavior: smooth;
+}
+#pscLinkListInner::-webkit-scrollbar { height: 6px; }
+#pscLinkListInner::-webkit-scrollbar-thumb { background: #c7d2fe; border-radius: 3px; }
+#pscLinkListInner::-webkit-scrollbar-track { background: transparent; }
+#pscLinkListInner .psc-link-card {
+  flex: 0 0 260px;
+  min-width: 260px;
+  max-width: 260px;
+  box-sizing: border-box;
+}
+</style>
+</head>
+<body>
+
+    <!-- ============ COMPANY BAR ============ -->
+    <div class="company-bar">
+        <div class="left-info">
+            <span><b>PSC - Pulse Shopping Coin</b></span>
+            <span>Call/WhatsApp: <b>07962058133</b></span>
+            <span>1 PSC = KSh 100</span>
+        </div>
+        <div class="right-info">
+            <span>support@pulseshopping.co.ke</span>
+            <a href="/sell" class="sell-badge">Sell on PSC</a>
+        </div>
+    </div>
+
+    <!-- ============ TOPBAR ============ -->
+    <div class="topbar">
+        <h1 onclick="window.location.href='/'">PSC - Pulse Shopping Coin</h1>
+        <div class="right-tools">
+            <div class="wallet-chip" onclick="toggleCurrency()" title="Click to switch PSC ↔ KES" style="cursor:pointer;">
+                <span class="live-dot"></span>
+                <span id="walletShort">Loading...</span>
+                <span style="opacity:0.7;">|</span>
+                <span id="bonusShort" style="color:#ffffff;font-weight:bold;">Bonus: 0.00 PSC</span>
+                <span style="opacity:0.7;">|</span>
+                <span id="purchasedShort" style="color: #005959;;font-weight:bold;">Purchased: 0.00 PSC</span>
+                <span style="opacity:0.7;">|</span>
+                <span id="dailyBonusShort" style="color:#FF8C00;font-weight:bold;">Daily: 0.00 PSC</span>
+                <button id="redeemDailyBtn" onclick="redeemDailyBonus()"
+                        style="margin-left:6px;background:#FF8C00;color:#fff;border:none;border-radius:14px;padding:3px 9px;font-size:0.75rem;font-weight:bold;cursor:pointer;">
+                    Redeem
+                </button>
+                <button id="buyPscBtn" onclick="openBuyPscModal()"
+                        style="margin-left:8px;background:#4DA6FF;color:#fff;border:none;border-radius:14px;padding:4px 10px;font-size:0.8rem;font-weight:bold;cursor:pointer;">
+                    Buy PSC
+                </button>
+            </div>
+            <button class="account-btn" id="accountBtn" onclick="openAccountModal()">
+              {% if user %}{{ user.name }}{% else %}Account{% endif %}
+            </button>
+
+            <div class="three-dot-wrap">
+                <button class="three-dot-btn" onclick="toggleThreeDot(event)">⋮</button>
+                <div class="three-dot-menu" id="threeDotMenu">
+                    <div class="menu-title">Shop Categories</div>
+                    {% for cat in categories %}
+                    <a onclick="goCategory('{{ cat.key }}')">{{ cat.label }}</a>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="container">
+
+         <!-- ============ CART PANEL ============ -->
+        <div class="cart-panel empty" id="cartPanel">
+            <h2>
+                🛒 Your Cart
+                <span class="count" id="cartCountBadge">0 items</span>
+            </h2>
+            <div class="cart-items" id="cartItemsList">
+                <div class="cart-empty">Your cart is empty. Click "Add to Cart" on any product.</div>
+            </div>
+            <div class="cart-footer">
+                <div>
+                    <div class="total-label">Total</div>
+                    <div class="total-amount" id="cartTotalBadge">KSh 0.00</div>
+                </div>
+                <button id="confirmBtn" onclick="confirmPurchase()" disabled>
+                    Confirm Purchase
+                </button>
+            </div>
+        </div>
+
+        <!-- ============ SEARCH + CATEGORY CIRCLES ============ -->
+        <div class="card">
+            <div class="search-bar">
+                <input type="text" id="searchInput" placeholder="Search products (phone, watch, shoes, tv...)"
+                       value="{{ query }}" onkeydown="if(event.key==='Enter') doSearch();">
+                <button onclick="doSearch()">Search</button>
+            </div>
+
+            <div class="category-circles">
+                {% for cat in categories %}
+                <div class="cat-circle {% if active_category == cat.key %}active{% endif %}"
+                     onclick="goCategory('{{ cat.key }}')">
+                    <div class="circle">{{ cat.emoji }}</div>
+                    <div class="cat-name">{{ cat.label }}</div>
+                </div>
+                {% endfor %}
+
+                
+            
+                <!-- BEGIN_PSC_WALLET_STRIP -->
+                <div id="pscWalletStrip" class="psc-wallet-wrap">
+  <button id="pscWalletDots" class="psc-wallet-dots" type="button" aria-label="Wallet menu" aria-expanded="false">
+    <span></span><span></span><span></span>
+  </button>
+
+  <div id="pscWalletMenu" class="psc-wallet-menu" role="menu" hidden>
+    <div class="psc-wallet-menu-title">My Wallet</div>
+    <a href="#" id="pscLinkDeposit"  data-psc="deposit"  role="menuitem">Deposit Money</a>
+    <a href="#" id="pscLinkBalance"  data-psc="balance"  role="menuitem">See Wallet Balance</a>
+    <a href="#" id="pscLinkWithdraw" data-psc="withdraw" role="menuitem">Withdraw Money</a>
+    <a href="#" id="pscLinkPayLink" data-psc="paylink" role="menuitem">Create Payment Link</a>
+  </div>
+</div>
+<div id="pscPanel" style="display:none;margin:0 0 16px;padding:18px;background:#C9A0DC;border:1px solid #e5e7eb;border-radius:12px;box-shadow:0 6px 24px rgba(15,23,42,.06);">
+
+                  <!-- Deposit panel -->
+                  <div data-psc-view="deposit" style="display:none;">
+                    <h3 style="margin:0 0 6px;color:#1a1a2e;">Deposit Money</h3>
+                    <p style="color:#666;font-size:0.9rem;margin:0 0 12px;">Add funds from any bank, card or M-Pesa. Choose which wallet pocket the money should land in.</p>
+                    <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:10px;">
+                      <input id="pscDepAmount" type="number" min="1" step="1" placeholder="Amount in KSh" style="flex:1 1 180px;padding:11px;border:1px solid #cbd5e1;border-radius:8px;box-sizing:border-box;background:#FFFACD;">
+                      <select id="pscDepChannel" style="flex:0 0 150px;padding:11px;border:1px solid #cbd5e1;border-radius:8px;box-sizing:border-box;background:#F0F8FF;">
+                        <option value="card">Card</option>
+                        <option value="mpesa">M-Pesa</option>
+                        <option value="banktransfer">Bank transfer</option>
+                      </select>
+                      <select id="pscDepGateway" style="flex:0 0 150px;padding:11px;border:1px solid #cbd5e1;border-radius:8px;box-sizing:border-box;background:#F0F8FF;">
+                        <option value="flutterwave">Flutterwave</option>
+                        <option value="paystack">Paystack</option>
+                      </select>
+                      <select id="pscDepCrypto" style="display:none;flex:0 0 150px;padding:11px;border:1px solid #cbd5e1;border-radius:8px;box-sizing:border-box;background:#F0F8FF;">
+                      </select>
+                    </div>
+                    <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:10px;">
+                      <label style="font-size:0.88rem;color:#334155;font-weight:600;">Deposit into:</label>
+                      <select id="pscDepTarget" style="flex:1 1 240px;padding:11px;border:1px solid #cbd5e1;border-radius:8px;box-sizing:border-box;">
+                        <option value="spendable">Spendable PSC (buy things on the shop)</option>
+                        <option value="savings">Savings PSC (held, withdrawable only)</option>
+                        <option value="deposit">Deposit PSC (held, withdrawable only)</option>
+                      </select>
+                    </div>
+                    <div style="display:flex;gap:10px;flex-wrap:wrap;">
+                      <button id="pscDepNow" style="padding:11px 22px;background:#28a745;color:#fff;border:0;border-radius:8px;font-weight:700;cursor:pointer;">Deposit now</button>
+                    </div>
+                    <div id="pscDepStatus" style="margin-top:10px;color:#334155;"></div>
+                  </div>
+
+                  <!-- Balance panel -->
+                  <div data-psc-view="balance" style="display:none;">
+                    <h3 style="margin:0 0 6px;color:#1a1a2e;">Wallet Balance</h3>
+                    <p style="color:#666;font-size:0.9rem;margin:0 0 12px;">Everything you hold in PSC. Savings and Deposit buckets are never touched by shopping.</p>
+                    <div id="pscBalanceGrid" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px;">
+                      <div style="padding:12px;border:1px solid #e5e7eb;border-radius:10px;background:#fff;"><div style="font-size:.8rem;color:#64748b;">Spendable PSC</div><div id="pscBWallet"  style="font-size:1.3rem;font-weight:700;color:#0f172a;">—</div></div>
+                      <div style="padding:12px;border:1px solid #e5e7eb;border-radius:10px;background:#fff;"><div style="font-size:.8rem;color:#64748b;">Savings PSC</div><div id="pscBSavings" style="font-size:1.3rem;font-weight:700;color:#0f172a;">—</div></div>
+                      <div style="padding:12px;border:1px solid #e5e7eb;border-radius:10px;background:#fff;"><div style="font-size:.8rem;color:#64748b;">Deposit PSC</div><div id="pscBDeposit" style="font-size:1.3rem;font-weight:700;color:#0f172a;">—</div></div>
+                      <div style="padding:12px;border:1px solid #e5e7eb;border-radius:10px;background:#fff;"><div style="font-size:.8rem;color:#64748b;">Bonus PSC</div><div id="pscBBonus"   style="font-size:1.3rem;font-weight:700;color:#0f172a;">—</div></div>
+                      <div style="padding:12px;border:1px solid #e5e7eb;border-radius:10px;background:#fff;"><div style="font-size:.8rem;color:#64748b;">Held PSC</div><div id="pscBHeld"    style="font-size:1.3rem;font-weight:700;color:#0f172a;">—</div></div>
+                      <div style="padding:12px;border:1px solid #e5e7eb;border-radius:10px;background:#fff;"><div style="font-size:.8rem;color:#64748b;">Total PSC</div><div id="pscBTotal"   style="font-size:1.3rem;font-weight:700;color:#0f172a;">—</div></div>
+                      <div style="padding:12px;border:1px solid #e5e7eb;border-radius:10px;background:#fff;"><div style="font-size:.8rem;color:#64748b;">Total (KES)</div><div id="pscBKes"     style="font-size:1.3rem;font-weight:700;color:#0f172a;">—</div></div>
+                    </div>
+                    <div style="margin-top:12px;display:flex;gap:10px;flex-wrap:wrap;">
+                      <button id="pscBalRefresh" style="padding:9px 18px;background:#eef2ff;color:#1f3a8a;border:1px solid #c7d2fe;border-radius:8px;font-weight:600;cursor:pointer;">Refresh</button>
+                    </div>
+                    <div id="pscBalStatus" style="margin-top:8px;color:#334155;"></div>
+                  </div>
+
+                  <!-- Withdraw panel -->
+                  <div data-psc-view="withdraw" style="display:none;">
+                    <h3 style="margin:0 0 6px;color:#1a1a2e;">Withdraw Money</h3>
+                    <p style="color:#666;font-size:0.9rem;margin:0 0 12px;">Move funds out to M-Pesa or a bank account. Admin confirms before money leaves. Daily cap shown below.</p>
+                    <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:10px;">
+                      <input id="pscWdPsc" type="number" min="1" step="0.01" placeholder="Amount in PSC" style="flex:1 1 170px;padding:11px;border:1px solid #cbd5e1;border-radius:8px;box-sizing:border-box;">
+                      <select id="pscWdMethod" style="flex:1 1 170px;padding:11px;border:1px solid #cbd5e1;border-radius:8px;box-sizing:border-box;">
+                        <option value="mpesa">M-Pesa (my number)</option>
+                        <option value="bank">Bank account</option>
+                      </select>
+                    </div>
+                    <div id="pscWdBandFields" style="display:none;margin-bottom:10px;gap:8px;flex-wrap:wrap;">
+                      <input id="pscWdBankCode" type="text" placeholder="Bank code (e.g. 044)" style="flex:1 1 180px;padding:11px;border:1px solid #cbd5e1;border-radius:8px;box-sizing:border-box;">
+                      <input id="pscWdAccount"  type="text" placeholder="Bank account number"  style="flex:1 1 240px;padding:11px;border:1px solid #cbd5e1;border-radius:8px;box-sizing:border-box;">
+                    </div>
+                    <div style="display:flex;gap:10px;flex-wrap:wrap;">
+                      <button id="pscWdNow"   style="padding:11px 22px;background:#667eea;color:#fff;border:0;border-radius:8px;font-weight:700;cursor:pointer;">Request Withdrawal</button>
+                      <button id="pscWdUsage" style="padding:11px 22px;background:#eef2ff;color:#1f3a8a;border:1px solid #c7d2fe;border-radius:8px;font-weight:600;cursor:pointer;">Check daily limit</button>
+                    </div>
+                    <div id="pscWdStatus" style="margin-top:10px;color:#334155;"></div>
+                  </div>
+
+                  <!-- Payment Link panel (inside #pscPanel — this is required) -->
+                  <div data-psc-view="paylink" style="display:none;">
+                    <h3 style="margin:0 0 6px;color:#1a1a2e;">Create a Payment Link</h3>
+                    <p style="color:#666;font-size:0.9rem;margin:0 0 12px;">Share this link with anyone. They can deposit money into your PSC wallet without needing an account.</p>
+                    <div id="pscLinkTabs" style="display:flex;gap:18px;align-items:center;margin:0 0 14px;font-size:0.95rem;">
+                      <a href="#" id="pscTabSent"  data-psc-tab="sent"
+                         style="color:#1a1a2e;font-weight:700;text-decoration:underline;cursor:pointer;">Sent links</a>
+                      <a href="#" id="pscTabPaid"  data-psc-tab="paid"
+                         style="color:#64748b;font-weight:600;text-decoration:underline;cursor:pointer;">Paid links</a>
+                      <span id="pscTabCount" style="color:#64748b;font-weight:500;margin-left:6px;"></span>
+                    </div>
+                    <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:10px;">
+                      <input id="pscLinkAmount" type="number" min="10" step="1" placeholder="Amount in KSh (blank = payer chooses)" style="flex:1 1 260px;padding:11px;border:1px solid #cbd5e1;border-radius:8px;box-sizing:border-box;">
+                      <input id="pscLinkNote" type="text" placeholder="Note (e.g. Order #42)" style="flex:1 1 220px;padding:11px;border:1px solid #cbd5e1;border-radius:8px;box-sizing:border-box;">
+                      <select id="pscLinkTarget" style="flex:0 0 170px;padding:11px;border:1px solid #cbd5e1;border-radius:8px;box-sizing:border-box;">
+                        <option value="spendable">Spendable PSC</option>
+                        <option value="savings">Savings PSC</option>
+                        <option value="deposit">Deposit PSC</option>
+                      </select>
+                    </div>
+                    <div style="display:flex;gap:10px;flex-wrap:wrap;">
+                      <button id="pscLinkCreate"  style="padding:11px 22px;background:#28a745;color:#fff;border:0;border-radius:8px;font-weight:700;cursor:pointer;">Generate Link</button>
+                      <button id="pscLinkRefresh" style="padding:11px 22px;background:#eef2ff;color:#1f3a8a;border:1px solid #c7d2fe;border-radius:8px;font-weight:600;cursor:pointer;">Refresh My Links</button>
+                    </div>
+                    <div id="pscLinkStatus" style="margin-top:10px;color:#334155;"></div>
+                    <div id="pscLinkResult" style="margin-top:12px;"></div>
+                    <div id="pscLinkListWrap" style="display:none;margin-top:14px;padding:14px;background:#ffffff;border:1px solid #e5e7eb;border-radius:12px;box-shadow:0 6px 18px rgba(15,23,42,0.08);">
+  <div id="pscLinkListInner">
+    <div id="pscLinkList"></div>
+  </div>
+</div>
+                  </div>
+
+                </div>
+                <!-- END_PSC_WALLET_STRIP --></div>
+
+            
+        </div>
+
+        <!-- ============ HERO CAROUSEL ============ -->
+        {% if hero_items %}
+        <div class="hero-wrap" id="heroWrap">
+            <div class="hero-track" id="heroTrack">
+                {% for h in hero_items %}
+                <div class="hero-slide hero-color-{{ loop.index0 % 6 }}">
+                    <div class="hero-text">
+                        <div class="hero-tag">
+                            {% if h.is_new %}New Arrival{% else %}Hot Deal{% endif %}
+                        </div>
+                        <div class="hero-title">{{ h.name[:70] }}{% if h.name|length > 70 %}...{% endif %}</div>
+                        <div class="hero-price">{{ h.price }} PSC</div>
+                        <div class="hero-kes">Pay only KSh {{ h.client_kes }} &nbsp;|&nbsp; Save with PSC</div>
+                        <button class="hero-cta" onclick="heroBuyNow('{{ h.id }}')">
+                            Shop Now
+                        </button>
+                    </div>
+                    <div class="hero-img-box">
+                        <img src="{{ h.image }}" alt="{{ h.name }}" loading="eager"
+                             onerror="this.style.display='none'">
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+
+            <button class="hero-arrow left" onclick="heroGo(-1)">&lsaquo;</button>
+            <button class="hero-arrow right" onclick="heroGo(1)">&rsaquo;</button>
+
+            <div class="hero-dots" id="heroDots">
+                {% for h in hero_items %}
+                <span class="dot {% if loop.first %}active{% endif %}" data-index="{{ loop.index0 }}" onclick="heroSet(this.dataset.index)"></span>
+                {% endfor %}
+            </div>
+
+            <div class="hero-progress" id="heroProgress"></div>
+        </div>
+        {% endif %}
+
+
+        <!-- ============ NEW ITEMS ROW ============ -->
+        {% if new_items %}
+        <div class="row-section">
+            <h2>
+                New Arrivals 2026
+                <span class="see-all" onclick="quick('new arrivals')">See All →</span>
+            </h2>
+            <div class="scroll-row">
+                {% for p in new_items %}
+                <div class="product {% if p.is_new %}new-arrival{% endif %} fade-in" data-pid="{{ p.id }}">
+                    {% if p.image %}
+                    <img src="{{ p.image }}" alt="{{ p.name }}" loading="lazy">
+                    {% else %}
+                    <div class="ph">No image</div>
+                    {% endif %}
+                    <h3>{{ p.name }}</h3>
+                    <div class="price">{{ p.price }} PSC</div>
+                    <div class="kes">(Pay KSh {{ p.client_kes }})</div>
+                    <div class="actions">
+                        <button class="add-cart" onclick="toggleCart(this.dataset.pid)" data-pid="{{ p.id }}">Add to Cart</button>
+                        <button class="buy-now" onclick="buyNow(this.dataset.pid)" data-pid="{{ p.id }}">Buy</button>
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+        {% endif %}
+
+        <!-- ============ TOP SELLING ROW ============ -->
+        {% if top_selling %}
+        <div class="row-section">
+            <h2>
+                Top Selling Items
+                <span class="see-all" onclick="quick('top selling')">See All →</span>
+            </h2>
+            <div class="scroll-row">
+                {% for p in top_selling %}
+                <div class="product {% if p.is_new %}new-arrival{% endif %} fade-in" data-pid="{{ p.id }}">
+                    {% if p.image %}
+                    <img src="{{ p.image }}" alt="{{ p.name }}" loading="lazy">
+                    {% else %}
+                    <div class="ph">No image</div>
+                    {% endif %}
+                    <h3>{{ p.name }}</h3>
+                    <div class="price">{{ p.price }} PSC</div>
+                    <div class="kes">(Pay KSh {{ p.client_kes }})</div>
+                    <div class="actions">
+                        <button class="add-cart" onclick="toggleCart(this.dataset.pid)" data-pid="{{ p.id }}">Add to Cart</button>
+                        <button class="buy-now" onclick="buyNow(this.dataset.pid)" data-pid="{{ p.id }}">Buy</button>
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+        {% endif %}
+
+        <!-- ============ MAIN PRODUCTS GRID ============ -->
+        <div class="card" id="productsCard">
+            <h2 style="font-size:1.2rem;color:#1a1a2e;margin-bottom:14px;padding-bottom:8px;border-bottom:2px solid #f0f0f8;">
+                {% if active_category_label %}
+                    {{ active_category_label }} — All Products
+                {% elif query %}
+                    Results for "{{ query }}"
+                {% else %}
+                    Live Market Feed
+                {% endif %}
+            </h2>
+
+            <div class="welcome-banner">
+                <span>Live market feed — unselected items refresh every 30s (cart items stay put)</span>
+                <span style="color:#059669;font-size:0.85rem;">Next refresh in <span id="countdown">30</span>s</span>
+            </div>
+
+            {% if products %}
+            <div class="products" id="productGrid">
+                {% for p in products %}
+                <div class="product {% if p.is_new %}new-arrival{% endif %} fade-in" data-pid="{{ p.id }}">
+                    {% if p.image %}
+                    <img src="{{ p.image }}" alt="{{ p.name }}" loading="lazy">
+                    {% else %}
+                    <div class="ph">No image</div>
+                    {% endif %}
+                    <h3>{{ p.name }}</h3>
+                    <div class="price">{{ p.price }} PSC</div>
+                    <div class="kes">(Pay KSh {{ p.client_kes }})</div>
+                    <div class="actions">
+                        <button class="add-cart" data-product-id="{{ p.id }}" onclick="toggleCart(this.dataset.productId)">Add to Cart</button>
+                        <button class="buy-now" data-product-id="{{ p.id }}" onclick="buyNow(this.dataset.productId)">Buy</button>
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+            {% else %}
+            <div class="empty">
+                <div class="big">No products</div>
+                <h2>No products found</h2>
+                <p>Try searching for something else</p>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+
+    <!-- ============ ACCOUNT MODAL ============ -->
+    <div class="modal-backdrop" id="accountModal">
+        <div class="modal">
+            <button class="close-x" onclick="closeAccountModal()">×</button>
+
+            <div id="loginView">
+                <h2>Welcome Back</h2>
+                <p class="sub">If you have an account, log in. Otherwise switch to register below.</p>
+                <div class="error-msg" id="loginError"></div>
+                <div class="field">
+                    <label>Phone Number</label>
+                    <input type="text" id="loginPhone" placeholder="07XXXXXXXX">
+                </div>
+                <div class="field">
+                    <label>Password</label>
+                    <input type="password" id="loginPassword" placeholder="Your password">
+                </div>
+                <button class="primary-btn" onclick="doLogin()">Log In</button>
+                <div class="switch-line">
+                    Don't have an account? <a onclick="showRegister()">Create one</a>
+                </div>
+            </div>
+
+            <div id="registerView" style="display:none;">
+                <h2>Create Account</h2>
+                <p class="sub">Get 6,000 PSC welcome bonus instantly!</p>
+                <div class="error-msg" id="registerError"></div>
+                <div class="field">
+                    <label>Full Name</label>
+                    <input type="text" id="regName" placeholder="John Doe">
+                </div>
+                <div class="field">
+                    <label>Phone Number</label>
+                    <input type="text" id="regPhone" placeholder="07XXXXXXXX">
+                </div>
+                <div class="field">
+                    <label>Email (optional)</label>
+                    <input type="email" id="regEmail" placeholder="you@example.com">
+                </div>
+                <div class="field">
+                    <label>Password</label>
+                    <input type="password" id="regPassword" placeholder="Choose a password">
+                </div>
+                <button class="primary-btn" onclick="doRegister()">Create Account</button>
+                <div class="switch-line">
+                    Already have an account? <a onclick="showLogin()">Log in</a>
+                </div>
+            </div>
+
+            <div id="loggedInView" style="display:none;">
+                <h2>Hello, <span id="loggedName"></span></h2>
+                <p class="sub">You are logged in.</p>
+                <div style="background:#f8f9ff;padding:14px;border-radius:10px;margin-bottom:16px;">
+                    <div style="font-size:0.85rem;color:#666;">Wallet</div>
+                    <div style="font-weight:bold;font-size:0.95rem;word-break:break-all;" id="loggedWallet"></div>
+                    <div style="font-size:0.85rem;color:#666;margin-top:8px;">Balance</div>
+                    <div style="font-weight:bold;color:#28a745;font-size:1.3rem;" id="loggedBalance"></div>
+                </div>
+                <button class="primary-btn" style="background:#dc3545;" onclick="doLogout()">Log Out</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // ============================================================
+        //  SERVER VALUES
+        // ============================================================
+        (function(){
+          var serverWallet = "{{ wallet|default('') }}";
+          var storedWallet = "";
+          try { storedWallet = localStorage.getItem('psc_wallet') || ""; } catch(e) {}
+          if (serverWallet) {
+            try { localStorage.setItem('psc_wallet', serverWallet); } catch(e) {}
+            window.__pscWallet = serverWallet;
+          } else if (storedWallet) {
+            window.__pscWallet = storedWallet;
+          } else {
+            window.__pscWallet = "";
+          }
+        })();
+        let clientWallet = window.__pscWallet || '';
+        let currentUser = JSON.parse('{{ user|tojson if user else "null" }}');
+        let currentQuery = "{{ query|default('') }}";
+        let activeCategory = "{{ active_category|default('') }}";
+
+        let countdown = 30;
+
+        const PSC_TO_KES = 100;
+
+        window.HERO_ITEMS = JSON.parse('{{ hero_items|tojson }}');
+
+        (function pscDebugBoot() {
+            var wantDebug = false;
+            try {
+                var params = new URLSearchParams(window.location.search);
+                var qp = params.get('debug');
+                if (qp === '1') {
+                    wantDebug = true;
+                    try { sessionStorage.setItem('psc_debug', '1'); } catch (e) {}
+                } else if (qp === '0') {
+                    wantDebug = false;
+                    try { sessionStorage.removeItem('psc_debug'); } catch (e) {}
+                } else {
+                    try { wantDebug = sessionStorage.getItem('psc_debug') === '1'; } catch (e) {}
+                }
+            } catch (e) { wantDebug = false; }
+
+            window.__pscDebug = !!wantDebug;
+
+            if (window.__pscDebug) {
+                window.__pscDebugT0 = Date.now();
+                console.log(
+                    '%c[psc-dbg] debug ON',
+                    'background:#667eea;color:#fff;padding:2px 6px;border-radius:3px;font-weight:bold;',
+                    'session persists via sessionStorage. Add ?debug=0 to turn off.'
+                );
+                console.log('[psc-dbg] activeCategory =', activeCategory || '(none)',
+                            '| currentQuery =', currentQuery || '(none)');
+            }
+        })();
+
+        function dbgLog() {
+            if (!window.__pscDebug) return;
+            var args = Array.prototype.slice.call(arguments);
+            var t = (Date.now() - (window.__pscDebugT0 || Date.now())) + 'ms';
+            console.log.apply(console, ['[psc-dbg ' + t + ']'].concat(args));
+        }
+        function dbgGroup(label) {
+            if (!window.__pscDebug) return;
+            var t = (Date.now() - (window.__pscDebugT0 || Date.now())) + 'ms';
+            console.groupCollapsed('[psc-dbg ' + t + '] ' + label);
+        }
+        function dbgGroupEnd() {
+            if (!window.__pscDebug) return;
+            console.groupEnd();
+        }
+
+        // ============================================================
+        //  CART STATE
+        // ============================================================
+        let cartMap = {};
+        try {
+            const raw = localStorage.getItem('psc_cart');
+            if (raw) {
+                const parsed = JSON.parse(raw);
+                cartMap = {};
+                Object.keys(parsed).forEach(k => { cartMap[String(k)] = parsed[k]; });
+            }
+        } catch (e) { cartMap = {}; }
+
+        let displayedProducts = {};
+
+        function saveCart() {
+            localStorage.setItem('psc_cart', JSON.stringify(cartMap));
+        }
+
+        // ===== Currency toggle: PSC ↔ KES =====
+        let walletBonusValue = 0;
+        let walletPurchasedValue = 0;
+        let walletDailyValue = 0;
+        let walletShowKes = false;
+
+        function toggleCurrency() {
+            walletShowKes = !walletShowKes;
+            renderWalletDisplay();
+        }
+
+        function renderWalletDisplay() {
+            const bEl = document.getElementById('bonusShort');
+            const pEl = document.getElementById('purchasedShort');
+            const dEl = document.getElementById('dailyBonusShort');
+            if (walletShowKes) {
+                if (bEl) bEl.textContent = 'Bonus: KES ' + (walletBonusValue * PSC_TO_KES).toFixed(2);
+                if (pEl) pEl.textContent = 'Purchased: KES ' + (walletPurchasedValue * PSC_TO_KES).toFixed(2);
+                if (dEl) dEl.textContent = 'Daily: KES ' + (walletDailyValue * PSC_TO_KES).toFixed(2);
+            } else {
+                if (bEl) bEl.textContent = 'Bonus: ' + walletBonusValue.toFixed(2) + ' PSC';
+                if (pEl) pEl.textContent = 'Purchased: ' + walletPurchasedValue.toFixed(2) + ' PSC';
+                if (dEl) dEl.textContent = 'Daily: ' + walletDailyValue.toFixed(2) + ' PSC';
+            }
+        }
+        // ===== end currency toggle =====
+function loadWalletChip() {
+    const chipEl = document.getElementById('walletShort');
+
+    fetch('/api/account/me', { credentials: 'same-origin', cache: 'no-store' })
+        .then(r => r.json())
+        .then(d => {
+            if (!d || !d.logged_in || !d.wallet) {
+                if (chipEl) chipEl.textContent = 'No wallet';
+                walletBonusValue = 0;
+                walletPurchasedValue = 0;
+                walletDailyValue = 0;
+                renderWalletDisplay();
+                return;
+            }
+
+            // Trust the server session over localStorage
+            clientWallet = d.wallet;
+            window.__pscWallet = d.wallet;
+            try { localStorage.setItem('psc_wallet', d.wallet); } catch (e) {}
+
+            if (chipEl) chipEl.textContent = clientWallet.substring(0, 12) + '…';
+            walletBonusValue     = Number(d.bonus_psc || 0);
+            walletPurchasedValue = Number(d.wallet_psc || 0);
+            walletDailyValue     = Number(d.daily_login_bonus_psc || 0);
+            renderWalletDisplay();
+        })
+        .catch(err => {
+            console.warn('[wallet] /api/account/me failed:', err);
+            if (chipEl) chipEl.textContent = 'Error';
+        });
+}
+
+        function redeemDailyBonus() {
+            if (!clientWallet) {
+                openAccountModal();
+                return;
+            }
+            fetch('/api/balance/' + clientWallet)
+                .then(r => r.json())
+                .then(d => {
+                    const daily = Number(d.daily_login_bonus_psc || 0);
+                    if (daily <= 0) {
+                        alert('You have no daily bonus to redeem yet. Daily bonuses accumulate once per day (1 PSC each).');
+                        return;
+                    }
+                    const ok = confirm(
+                        'Redeem your daily bonus?\n\n' +
+                        'Daily bonus available: ' + daily.toFixed(2) + ' PSC\n\n' +
+                        'This amount will be transferred to your Bonus balance\n' +
+                        'so you can use it for shopping.'
+                    );
+                    if (!ok) return;
+
+                    fetch('/api/wallet/redeem_daily_bonus', {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({ wallet: clientWallet })
+                    })
+                    .then(r => r.json())
+                    .then(res => {
+                        if (!res.success) {
+                            alert('Could not redeem: ' + (res.message || 'Unknown error'));
+                            return;
+                        }
+                        alert('Success: ' + res.message);
+                        loadWalletChip();
+                    })
+                    .catch(e => alert('Error: ' + e));
+                })
+                .catch(e => alert('Error: ' + e));
+        }
+
+        function openBuyPscModal() {
+            if (!clientWallet) {
+                alert('Please log in or register first to buy PSC.');
+                openAccountModal();
+                return;
+            }
+            if (typeof window.openPscPurchase === 'function') {
+                window.openPscPurchase();
+            } else {
+                alert('Purchase form failed to load. Please refresh the page.');
+            }
+        }
+
+        function doSearch() {
+            const input = document.getElementById('searchInput');
+            if (!input) return;
+            const q = input.value.trim();
+            if (!q) return;
+
+            try { sessionStorage.setItem('psc_scroll_top', '1'); } catch (e) {}
+
+            window.location.href = '/?q=' + encodeURIComponent(q);
+        }
+        function quick(term) {
+            window.location.href = '/?q=' + encodeURIComponent(term);
+        }
+        function goCategory(key) {
+            try { sessionStorage.setItem('psc_scroll_top', '1'); } catch (e) {}
+            window.location.href = '/?category=' + encodeURIComponent(key);
+        }
+
+        // ============================================================
+        //  3-DOT MENU
+        // ============================================================
+        function toggleThreeDot(e) {
+            e.stopPropagation();
+            document.getElementById('threeDotMenu').classList.toggle('open');
+        }
+        document.addEventListener('click', function(e) {
+            const menu = document.getElementById('threeDotMenu');
+            if (menu && menu.classList.contains('open') && !e.target.closest('.three-dot-wrap')) {
+                menu.classList.remove('open');
+            }
+        });
+
+        // ============================================================
+        //  LIVE CATEGORY IMAGES
+        // ============================================================
+        const CATEGORY_IMAGE_INTERVAL = 120000;
+
+        function getCategoryKeyFromCircle(circle) {
+            const handler = circle.getAttribute('onclick') || '';
+            const match = handler.match(/goCategory\(['\"]([^'\"]+)['\"]\)/);
+            return match ? match[1] : '';
+        }
+
+        function setCategoryCircleImage(circle, product) {
+            if (!circle || !product || !product.image) return;
+            const holder = circle.querySelector('.circle');
+            if (!holder) return;
+
+            const existing = holder.querySelector('img');
+            if (existing && existing.getAttribute('src') === product.image) return;
+
+            const img = document.createElement('img');
+            img.src = product.image;
+            img.alt = product.name || 'Category product';
+            img.loading = 'eager';
+            img.style.width = '72px';
+            img.style.height = '72px';
+            img.style.objectFit = 'contain';
+            img.style.borderRadius = '50%';
+
+            img.onload = function() {
+                holder.innerHTML = '';
+                holder.appendChild(img);
+            };
+            img.onerror = function() {
+                console.warn('Category image could not be loaded:', product.image);
+            };
+        }
+
+        async function refreshCategoryImages() {
+            const circles = Array.from(document.querySelectorAll('.cat-circle'));
+            if (!circles.length) return;
+
+            try {
+                const resp = await fetch('/api/category_images?_live=' + Date.now(), {
+                    cache: 'no-store',
+                    credentials: 'same-origin'
+                });
+                const data = await resp.json();
+                if (!data.success || !data.images) return;
+
+                for (const circle of circles) {
+                    const categoryKey = getCategoryKeyFromCircle(circle);
+                    if (!categoryKey) continue;
+
+                    const info = data.images[categoryKey];
+                    if (!info || !info.image) continue;
+
+                    const product = {
+                        image: info.image,
+                        name: info.name || categoryKey
+                    };
+                    setCategoryCircleImage(circle, product);
+                }
+            } catch (error) {
+                console.error('Category image refresh error:', error);
+            }
+        }
+
+        document.addEventListener('DOMContentLoaded', function() {
+            refreshCategoryImages();
+            setInterval(refreshCategoryImages, CATEGORY_IMAGE_INTERVAL);
+        });
+
+        // ============================================================
+        //  HERO CAROUSEL
+        // ============================================================
+        let heroIndex = 0;
+        let heroTimer = null;
+        let heroProgressTimer = null;
+        const HERO_INTERVAL = 5000;
+
+        function heroSlidesCount() {
+            return document.querySelectorAll('.hero-slide').length;
+        }
+        function heroGo(dir) {
+            const total = heroSlidesCount();
+            if (!total) return;
+            heroIndex = (heroIndex + dir + total) % total;
+            heroUpdate();
+            heroRestartAuto();
+        }
+        function heroSet(i) {
+            heroIndex = i;
+            heroUpdate();
+            heroRestartAuto();
+        }
+        function heroUpdate() {
+            const track = document.getElementById('heroTrack');
+            if (!track) return;
+            track.style.transform = 'translateX(-' + (heroIndex * 100) + '%)';
+            document.querySelectorAll('#heroDots .dot').forEach((d, i) => {
+                d.classList.toggle('active', i === heroIndex);
+            });
+            const p = document.getElementById('heroProgress');
+            if (p) { p.style.transition = 'none'; p.style.width = '0%'; }
+        }
+        function heroRestartAuto() {
+            clearInterval(heroTimer);
+            clearInterval(heroProgressTimer);
+
+            const p = document.getElementById('heroProgress');
+            if (p) { p.style.transition = 'none'; p.style.width = '0%'; }
+
+            const total = heroSlidesCount();
+            if (total <= 1) return;
+
+            const start = Date.now();
+            heroProgressTimer = setInterval(() => {
+                const elapsed = Date.now() - start;
+                const pct = Math.min(100, (elapsed / HERO_INTERVAL) * 100);
+                if (p) {
+                    p.style.transition = 'none';
+                    p.style.width = pct + '%';
+                }
+            }, 50);
+
+            heroTimer = setInterval(() => {
+                heroIndex = (heroIndex + 1) % heroSlidesCount();
+                heroUpdate();
+                heroRestartAuto();
+            }, HERO_INTERVAL);
+        }
+        function heroBuyNow(pid) {
+            buyNow(pid);
+        }
+
+        document.addEventListener('DOMContentLoaded', function() {
+            const wrap = document.getElementById('heroWrap');
+            if (wrap) {
+                wrap.addEventListener('mouseenter', () => {
+                    clearInterval(heroTimer);
+                    clearInterval(heroProgressTimer);
+                });
+                wrap.addEventListener('mouseleave', () => {
+                    heroRestartAuto();
+                });
+                heroRestartAuto();
+            }
+        });
+
+        // ============================================================
+        //  CART
+        // ============================================================
+        function getProductById(pid) {
+            pid = String(pid);
+            if (displayedProducts[pid]) return displayedProducts[pid];
+            if (cartMap[pid]) return cartMap[pid].product;
+            const hero = (window.HERO_ITEMS || []).find(x => String(x.id) === pid);
+            if (hero) return hero;
+            return null;
+        }
+
+        // ============================================================
+        //  FIX: sync EVERY card + button for a product (handles the
+        //  same product appearing in New Arrivals, Top Selling, and
+        //  the Main Grid at once). Previously the code used
+        //  getElementById('cart-btn-...') which only ever hit the
+        //  FIRST match in the DOM, so clicking a card in the main
+        //  grid highlighted a card in another row instead.
+        // ============================================================
+        function syncCartUI(pid) {
+            pid = String(pid);
+            const inCart = !!cartMap[pid];
+
+            // 1) Every card for this product
+            document.querySelectorAll('.product[data-pid="' + pid + '"]').forEach(function(card) {
+                if (inCart) card.classList.add('in-cart');
+                else        card.classList.remove('in-cart');
+            });
+
+            // 2) Every Add-to-Cart button for this product.
+            //    Buttons use data-pid in New/Top rows and data-product-id
+            //    in the main grid, so we match both.
+            document.querySelectorAll(
+                'button.add-cart[data-pid="' + pid + '"], ' +
+                'button.add-cart[data-product-id="' + pid + '"]'
+            ).forEach(function(btn) {
+                btn.textContent = inCart ? 'In Cart (remove)' : 'Add to Cart';
+                if (inCart) btn.classList.add('selected');
+                else        btn.classList.remove('selected');
+            });
+        }
+
+        function toggleCart(pid) {
+            pid = String(pid);
+            const product = getProductById(pid);
+            if (!product) return;
+
+            if (cartMap[pid]) {
+                delete cartMap[pid];
+            } else {
+                cartMap[pid] = { product: product, qty: 1 };
+            }
+
+            saveCart();
+            renderCart();
+            syncCartUI(pid);
+        }
+
+        function changeQty(pid, delta) {
+            pid = String(pid);
+            if (!cartMap[pid]) return;
+            cartMap[pid].qty += delta;
+            if (cartMap[pid].qty < 1) cartMap[pid].qty = 1;
+            saveCart();
+            renderCart();
+        }
+
+        function removeFromCart(pid) {
+            pid = String(pid);
+            if (!cartMap[pid]) return;
+            delete cartMap[pid];
+            saveCart();
+            renderCart();
+            syncCartUI(pid);
+        }
+
+        function renderCart() {
+            const list = document.getElementById('cartItemsList');
+            const panel = document.getElementById('cartPanel');
+            const ids = Object.keys(cartMap);
+            let total = 0;
+            let count = 0;
+
+            if (panel) {
+                if (ids.length === 0) {
+                    panel.classList.add('empty');
+                } else {
+                    panel.classList.remove('empty');
+                }
+            }
+
+            if (ids.length === 0) {
+                list.innerHTML = '<div class="cart-empty">Your cart is empty. Click "Add to Cart" on any product.</div>';
+                document.getElementById('cartCountBadge').textContent = '0 items';
+                document.getElementById('cartTotalBadge').textContent = 'KSh 0.00';
+                document.getElementById('confirmBtn').disabled = true;
+                return;
+            }
+
+            let html = '';
+            ids.forEach(pid => {
+                const item = cartMap[pid];
+                const sub = item.product.price * item.qty;
+                total += sub;
+                count += item.qty;
+                html += '<div class="cart-item">';
+                html +=   '<span class="name">' + escapeHtml(item.product.name.substring(0, 50)) + '</span>';
+                html +=   '<span class="qty">';
+                const safePid = JSON.stringify(String(pid));
+                html +=     '<button onclick="changeQty(' + safePid + ', -1)">−</button>';
+                html +=     '<span>' + item.qty + '</span>';
+                html +=     '<button onclick="changeQty(' + safePid + ', 1)">+</button>';
+                html +=   '</span>';
+                html += '<span class="sub">KSh ' + (sub * PSC_TO_KES).toFixed(2) + '</span>';
+                html +=   '<button class="remove" data-remove-pid="' + escapeHtml(String(pid)) + '">×</button>';
+                html += '</div>';
+            });
+            list.innerHTML = html;
+
+            document.getElementById('cartCountBadge').textContent = count + ' item' + (count !== 1 ? 's' : '');
+            document.getElementById('cartTotalBadge').textContent = 'KSh ' + (total * PSC_TO_KES).toFixed(2);
+            document.getElementById('confirmBtn').disabled = false;
+        }
+
+        function confirmPurchase() {
+            if (!clientWallet) { openAccountModal(); return; }
+            const ids = Object.keys(cartMap);
+            if (ids.length === 0) return;
+
+            let total = 0;
+            ids.forEach(pid => { total += cartMap[pid].product.price * cartMap[pid].qty; });
+            total = Math.round(total * 100) / 100;
+
+            fetch('/api/balance/' + clientWallet)
+                .then(r => r.json())
+                .then(d => {
+                    const bal = d.balance || 0;
+                    if (bal < total) {
+                        alert(
+                            'Insufficient PSC balance.\n\n' +
+                            'Your balance: ' + bal.toFixed(2) + ' PSC\n' +
+                            'Cart total: ' + total.toFixed(2) + ' PSC\n\n' +
+                            'Please call our management for more PSC tokens:\n' +
+                            '07962058133'
+                        );
+                        return;
+                    }
+                    const checkoutData = ids.map(pid => ({
+                        id: pid,
+                        quantity: cartMap[pid].qty,
+                        product: cartMap[pid].product
+                    }));
+                    sessionStorage.setItem('psc_checkout', JSON.stringify(checkoutData));
+                    sessionStorage.setItem('psc_checkout_total', total.toFixed(2));
+                    window.location.href = '/cart_checkout?wallet=' + encodeURIComponent(clientWallet);
+                });
+        }
+
+        function buyNow(pid) {
+            pid = String(pid);
+            if (!clientWallet) { openAccountModal(); return; }
+            const product = getProductById(pid);
+            if (!product) return;
+            fetch('/api/balance/' + clientWallet)
+                .then(r => r.json())
+                .then(d => {
+                    if ((d.balance || 0) < 5) {
+                        alert('Your PSC balance is too low.\n\n07962058133');
+                        return;
+                    }
+                    window.location.href = '/order_form?product_id=' + pid + '&wallet=' + clientWallet;
+                });
+        }
+
+        // ============================================================
+        //  CACHE-LOGIC — PRODUCT CACHE (in-memory + sessionStorage)
+        // ============================================================
+        const PSC_CACHE_TTL_MS = 60000;
+        const PSC_CACHE_PREFIX = 'psc_product_cache_v1_';
+        const PSC_CACHE_MAX_KEYS = 40;
+
+        let pscProductCache = {};
+
+        function cacheKey(category, query) {
+            return PSC_CACHE_PREFIX + (category || '_') + '__' + (query || '_');
+        }
+
+        function cacheRead(key) {
+            const mem = pscProductCache[key];
+            if (mem) {
+                if (Date.now() - mem.ts < PSC_CACHE_TTL_MS) {
+                    dbgLog('cache HIT (mem)', key, '| age', (Date.now() - mem.ts) + 'ms');
+                    return mem.data;
+                }
+                delete pscProductCache[key];
+                dbgLog('cache EXPIRED (mem)', key);
+            }
+            try {
+                const raw = sessionStorage.getItem(key);
+                if (!raw) {
+                    dbgLog('cache MISS', key);
+                    return null;
+                }
+                const parsed = JSON.parse(raw);
+                if (!parsed || typeof parsed.ts !== 'number') return null;
+                if (Date.now() - parsed.ts >= PSC_CACHE_TTL_MS) {
+                    sessionStorage.removeItem(key);
+                    dbgLog('cache EXPIRED (ss)', key);
+                    return null;
+                }
+                pscProductCache[key] = parsed;
+                dbgLog('cache HIT (sessionStorage)', key, '| age', (Date.now() - parsed.ts) + 'ms');
+                return parsed.data;
+            } catch (e) {
+                return null;
+            }
+        }
+
+        function cacheWrite(key, data) {
+            const entry = { ts: Date.now(), data: data };
+            pscProductCache[key] = entry;
+            try {
+                sessionStorage.setItem(key, JSON.stringify(entry));
+                dbgLog('cache WRITE', key, '| products', (data && data.products && data.products.length) || 0);
+            } catch (e) {
+                dbgLog('cache WRITE failed (quota) → prune', key);
+                pruneCache();
+            }
+        }
+
+        function pruneCache() {
+            try {
+                const keys = [];
+                for (let i = 0; i < sessionStorage.length; i++) {
+                    const k = sessionStorage.key(i);
+                    if (k && k.indexOf(PSC_CACHE_PREFIX) === 0) keys.push(k);
+                }
+                keys.sort((a, b) => {
+                    try {
+                        return JSON.parse(sessionStorage.getItem(a)).ts - JSON.parse(sessionStorage.getItem(b)).ts;
+                    } catch (e) { return 0; }
+                });
+                const drop = keys.slice(0, Math.ceil(keys.length / 2));
+                drop.forEach(k => sessionStorage.removeItem(k));
+                dbgLog('cache PRUNED (ss)', drop.length, 'keys dropped');
+            } catch (e) {}
+            const memKeys = Object.keys(pscProductCache);
+            if (memKeys.length > PSC_CACHE_MAX_KEYS) {
+                const dropMem = memKeys
+                    .sort((a, b) => pscProductCache[a].ts - pscProductCache[b].ts)
+                    .slice(0, Math.ceil(memKeys.length / 2));
+                dropMem.forEach(k => delete pscProductCache[k]);
+                dbgLog('cache PRUNED (mem)', dropMem.length, 'keys dropped');
+            }
+        }
+
+        function clearProductCache() {
+            pscProductCache = {};
+            try {
+                const victims = [];
+                for (let i = 0; i < sessionStorage.length; i++) {
+                    const k = sessionStorage.key(i);
+                    if (k && k.indexOf(PSC_CACHE_PREFIX) === 0) victims.push(k);
+                }
+                victims.forEach(k => sessionStorage.removeItem(k));
+                dbgLog('cache CLEARED', victims.length, 'keys');
+            } catch (e) {}
+        }
+        window.clearProductCache = clearProductCache;
+
+        // ============================================================
+        //  LIVE REFRESH  (cache-aware)
+        // ============================================================
+        let productSearchController = null;
+        let productSearchRequestId = 0;
+        let productSearchInFlight = false;
+
+        function renderProductGrid(data) {
+            let grid = document.getElementById('productGrid');
+            if (!grid) {
+                const productsCard = document.getElementById('productsCard');
+                if (!productsCard) return;
+                const emptyMessage = productsCard.querySelector('.empty');
+                if (emptyMessage) emptyMessage.remove();
+                grid = document.createElement('div');
+                grid.className = 'products';
+                grid.id = 'productGrid';
+                productsCard.appendChild(grid);
+            }
+
+            const fresh = {};
+            data.products.forEach(p => {
+                if (p && p.id !== undefined && p.id !== null) fresh[String(p.id)] = p;
+            });
+            displayedProducts = Object.assign({}, displayedProducts, fresh);
+
+            const cartIds = Object.keys(cartMap);
+            const resultIds = data.products
+                .filter(p => p && p.id !== undefined && p.id !== null)
+                .map(p => String(p.id));
+            const orderedIds = [...new Set([...cartIds, ...resultIds])];
+
+            let html = '';
+            orderedIds.forEach(pid => {
+                const p = fresh[pid] || (cartMap[pid] && cartMap[pid].product);
+                if (!p) return;
+                const inCart = !!cartMap[pid];
+                const safeId = escapeHtml(pid);
+                html += '<div class="product ' + (p.is_new ? 'new-arrival ' : '') + (inCart ? 'in-cart ' : '') + 'fade-in" data-pid="' + safeId + '">';
+                if (p.image) {
+                    html += '<img src="' + escapeHtml(p.image) + '" alt="' + escapeHtml(p.name || '') + '" loading="lazy" onerror="this.style.display=\'none\'">';
+                } else {
+                    html += '<div class="ph">No image</div>';
+                }
+                html += '<h3>' + escapeHtml(p.name || 'Product') + '</h3>';
+                html += '<div class="price">' + escapeHtml(p.price != null ? p.price : 0) + ' PSC</div>';
+                html += '<div class="kes">(Pay KSh ' + escapeHtml(p.client_kes != null ? p.client_kes : 0) + ')</div>';
+                html += '<div class="actions">';
+                // NOTE: no id="cart-btn-..." here — we now use data-pid + syncCartUI
+                html += '<button class="add-cart ' + (inCart ? 'selected' : '') + '" data-pid="' + safeId + '" onclick="toggleCart(this.dataset.pid)">' + (inCart ? 'In Cart (remove)' : 'Add to Cart') + '</button>';
+                html += '<button class="buy-now" data-pid="' + safeId + '" onclick="buyNow(this.dataset.pid)">Buy</button>';
+                html += '</div></div>';
+            });
+            grid.innerHTML = html || '<div class="empty"><div class="big">?</div><h2>No products found</h2><p>Try another product name.</p></div>';
+
+            const heading = document.querySelector('#productsCard > h2');
+            if (heading) heading.textContent = currentQuery
+                ? 'Results for "' + currentQuery + '"'
+                : (activeCategory ? heading.textContent : 'Live Market Feed');
+
+            dbgLog('grid RENDERED', orderedIds.length, 'cards |', currentQuery ? ('q=' + currentQuery) : (activeCategory ? ('cat=' + activeCategory) : 'live feed'));
+        }
+
+        function refreshProducts(forceNetwork) {
+            const effectiveQuery = (currentQuery || '').trim() || 'electronics';
+            const key = cacheKey(activeCategory, effectiveQuery);
+            dbgLog('refreshProducts called | key =', key, '| force =', !!forceNetwork);
+
+            if (!forceNetwork) {
+                const cached = cacheRead(key);
+                if (cached && cached.success && Array.isArray(cached.products)) {
+                    renderProductGrid(cached);
+                    dbgLog('foreground served from CACHE — no network call');
+                    return;
+                }
+            }
+
+            if (productSearchInFlight) {
+                dbgLog('refreshProducts SKIPPED — a fetch is already in flight');
+                return;
+            }
+            productSearchInFlight = true;
+
+            let grid = document.getElementById('productGrid');
+            if (!grid) {
+                const productsCard = document.getElementById('productsCard');
+                if (!productsCard) { productSearchInFlight = false; return; }
+                const emptyMessage = productsCard.querySelector('.empty');
+                if (emptyMessage) emptyMessage.remove();
+                grid = document.createElement('div');
+                grid.className = 'products';
+                grid.id = 'productGrid';
+                productsCard.appendChild(grid);
+            }
+
+            const requestId = ++productSearchRequestId;
+            if (productSearchController) productSearchController.abort();
+            productSearchController = new AbortController();
+
+            let url = '/api/products?q=' + encodeURIComponent(effectiveQuery) + '&_live=' + Date.now();
+            if (activeCategory) url += '&category=' + encodeURIComponent(activeCategory);
+
+            const __t0 = Date.now();
+            dbgLog('foreground FETCH →', url, '| requestId', requestId);
+
+            fetch(url, {
+                cache: 'no-store',
+                credentials: 'same-origin',
+                signal: productSearchController.signal,
+                headers: {'Accept': 'application/json'}
+            })
+            .then(response => {
+                if (!response.ok) throw new Error('Product search failed (' + response.status + ')');
+                return response.json();
+            })
+            .then(data => {
+                if (requestId !== productSearchRequestId) {
+                    dbgLog('foreground response IGNORED (stale requestId)', requestId, '!==', productSearchRequestId);
+                    return;
+                }
+                if (!data || data.success !== true || !Array.isArray(data.products)) {
+                    grid.innerHTML = '<div class="empty"><div class="big">!</div><h2>Could not load products</h2><p>Please try again.</p></div>';
+                    return;
+                }
+                cacheWrite(key, data);
+                renderProductGrid(data);
+                dbgLog('foreground OK |', (Date.now() - __t0) + 'ms |', data.products.length, 'products');
+            })
+            .catch(error => {
+                if (error && error.name === 'AbortError') {
+                    dbgLog('foreground ABORTED', requestId);
+                    return;
+                }
+                if (requestId !== productSearchRequestId) return;
+                console.error('Product refresh/search error:', error);
+                const stale = pscProductCache[key] || (function(){
+                    try { return JSON.parse(sessionStorage.getItem(key)); } catch (e) { return null; }
+                })();
+                if (stale && stale.data && stale.data.success) {
+                    console.warn('[cache] using stale cache after network error');
+                    dbgLog('foreground ERROR → fell back to STALE cache', key);
+                    renderProductGrid(stale.data);
+                    return;
+                }
+                grid.innerHTML = '<div class="empty"><div class="big">!</div><h2>Search temporarily unavailable</h2><p>Please try again.</p></div>';
+            })
+            .finally(() => { productSearchInFlight = false; });
+        }
+
+        function escapeHtml(value) {
+            return String(value == null ? '' : value).replace(/[&<>"']/g, ch =>
+                ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
+        }
+
+        document.addEventListener('click', function(e) {
+            const btn = e.target.closest('.cart-item .remove[data-remove-pid]');
+            if (!btn) return;
+            e.preventDefault();
+            e.stopPropagation();
+            const pid = btn.getAttribute('data-remove-pid');
+            if (pid) removeFromCart(pid);
+        });
+
+        setInterval(() => {
+            countdown--;
+
+            if (countdown <= 0) {
+                countdown = 30;
+                dbgLog('30s tick → refreshProducts(false)');
+                refreshProducts(false);
+                loadWalletChip();
+            }
+
+            const el = document.getElementById('countdown');
+            if (el) el.textContent = countdown;
+        }, 1000);
+
+        // ============================================================
+        //  ACCOUNT MODAL
+        // ============================================================
+        function openAccountModal() {
+            document.getElementById('accountModal').classList.add('open');
+            if (currentUser) { showLoggedIn(); } else { showLogin(); }
+        }
+        function closeAccountModal() {
+            document.getElementById('accountModal').classList.remove('open');
+        }
+        function showLogin() {
+            document.getElementById('loginView').style.display = 'block';
+            document.getElementById('registerView').style.display = 'none';
+            document.getElementById('loggedInView').style.display = 'none';
+        }
+        function showRegister() {
+            document.getElementById('loginView').style.display = 'none';
+            document.getElementById('registerView').style.display = 'block';
+            document.getElementById('loggedInView').style.display = 'none';
+        }
+        function showLoggedIn() {
+            document.getElementById('loginView').style.display = 'none';
+            document.getElementById('registerView').style.display = 'none';
+            document.getElementById('loggedInView').style.display = 'block';
+            document.getElementById('loggedName').textContent = currentUser.name || '';
+            document.getElementById('loggedWallet').textContent = clientWallet || '—';
+            fetch('/api/balance/' + clientWallet)
+                .then(r => r.json())
+                .then(d => {
+                    document.getElementById('loggedBalance').textContent = (d.balance || 0).toFixed(2) + ' PSC';
+                });
+        }
+
+        function doRegister() {
+            const name = document.getElementById('regName').value.trim();
+            const phone = document.getElementById('regPhone').value.trim();
+            const email = document.getElementById('regEmail').value.trim();
+            const password = document.getElementById('regPassword').value.trim();
+            const err = document.getElementById('registerError');
+            err.style.display = 'none';
+
+            if (!name || !phone || !password) {
+                err.textContent = 'Please fill in all required fields.';
+                err.style.display = 'block';
+                return;
+            }
+
+            fetch('/api/account/register', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({name, phone, email, password})
+            })
+            .then(r => r.json())
+            .then(d => {
+                if (!d.success) {
+                    err.textContent = d.message || 'Registration failed.';
+                    err.style.display = 'block';
+                    return;
+                }
+                currentUser = d.user;
+                clientWallet = d.wallet;
+                window.__pscWallet = d.wallet;
+                localStorage.setItem('psc_wallet', clientWallet);
+                document.getElementById('accountBtn').textContent = currentUser.name;
+                alert(d.message);
+                showLoggedIn();
+                loadWalletChip();
+            })
+            .catch(() => {
+                err.textContent = 'Network error. Try again.';
+                err.style.display = 'block';
+            });
+        }
+
+        function doLogin() {
+            const phone = document.getElementById('loginPhone').value.trim();
+            const password = document.getElementById('loginPassword').value.trim();
+            const err = document.getElementById('loginError');
+            err.style.display = 'none';
+
+            if (!phone || !password) {
+                err.textContent = 'Enter phone and password.';
+                err.style.display = 'block';
+                return;
+            }
+
+            fetch('/api/account/login', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({phone, password})
+            })
+            .then(r => r.json())
+            .then(d => {
+                if (!d.success) {
+                    err.textContent = d.message || 'Login failed.';
+                    err.style.display = 'block';
+                    return;
+                }
+                currentUser = d.user;
+                clientWallet = d.wallet;
+                window.__pscWallet = d.wallet;
+                localStorage.setItem('psc_wallet', clientWallet);
+                document.getElementById('accountBtn').textContent = currentUser.name;
+                showLoggedIn();
+                loadWalletChip();
+            })
+            .catch(() => {
+                err.textContent = 'Network error. Try again.';
+                err.style.display = 'block';
+            });
+        }
+
+        function doLogout() {
+            fetch('/api/account/logout', {method: 'POST'})
+                .then(() => {
+                    currentUser = null;
+                    clientWallet = '';
+                    window.__pscWallet = '';
+                    localStorage.removeItem('psc_wallet');
+                    document.getElementById('accountBtn').textContent = 'Account';
+                    closeAccountModal();
+                    window.location.reload();
+                });
+        }
+
+        document.getElementById('accountModal').addEventListener('click', function(e) {
+            if (e.target === this) closeAccountModal();
+        });
+
+        // ============================================================
+        //  INIT
+        // ============================================================
+        (function registerServerRenderedProducts() {
+            document.querySelectorAll('.product[data-pid]').forEach(card => {
+                const pid = String(card.getAttribute('data-pid') || '');
+                if (!pid || pid === 'null' || pid === 'undefined') return;
+
+                const imgEl = card.querySelector('img');
+                const nameEl = card.querySelector('h3');
+                const priceEl = card.querySelector('.price');
+                const kesEl = card.querySelector('.kes');
+
+                const priceTxt = priceEl ? priceEl.textContent.replace(' PSC', '').trim() : '0';
+                const kesTxt = kesEl ? kesEl.textContent.replace(/[()]|Pay KSh|/g, '').trim() : '0';
+
+                displayedProducts[pid] = {
+                    id: pid,
+                    name: nameEl ? nameEl.textContent.trim() : 'Product',
+                    image: imgEl ? imgEl.src : '',
+                    price: parseFloat(priceTxt) || 0,
+                    client_kes: parseFloat(kesTxt) || 0
+                };
+            });
+        })();
+
+        // === FIX: reflect saved cart state on every card after page load ===
+        (function hydrateCartUI() {
+            Object.keys(cartMap).forEach(function(pid) { syncCartUI(pid); });
+        })();
+
+        (function autoScrollOnCategoryChange() {
+            let shouldScroll = false;
+            try {
+                shouldScroll = sessionStorage.getItem('psc_scroll_top') === '1';
+                if (shouldScroll) sessionStorage.removeItem('psc_scroll_top');
+            } catch (e) {}
+
+            if (!shouldScroll) return;
+
+            const doScroll = () => {
+                const target =
+                    document.getElementById('productsCard') ||
+                    document.getElementById('productGrid') ||
+                    document.body;
+                if (target && target.scrollIntoView) {
+                    target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                } else {
+                    window.scrollTo({ top: 0, behavior: 'smooth' });
+                }
+            };
+
+            const kick = () => setTimeout(doScroll, 150);
+            if (document.readyState === 'interactive' || document.readyState === 'complete') {
+                kick();
+            } else {
+                document.addEventListener('DOMContentLoaded', kick);
+            }
+        })();
+
+        // ============================================================
+        //  BACKGROUND-LOADER
+        // ============================================================
+        const PSC_BG_IDLE_DELAY_MS = 5000;
+        const PSC_BG_MIN_TTL_REMAINING_MS = 15000;
+
+        let pscBgController = null;
+        let pscBgInFlight = false;
+        let pscBgTimer = null;
+        let pscBgIdleHandle = null;
+
+        function pscBgConnectionOk() {
+            try {
+                const c = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
+                if (!c) {
+                    dbgLog('bg gate: connection API missing → allow');
+                    return true;
+                }
+                if (c.saveData) {
+                    dbgLog('bg gate: saveData = true → skip');
+                    return false;
+                }
+                const t = String(c.effectiveType || '').toLowerCase();
+                if (t === 'slow-2g' || t === '2g' || t === '3g') {
+                    dbgLog('bg gate: connection =', t, '→ skip');
+                    return false;
+                }
+                dbgLog('bg gate: connection =', t || 'unknown', '→ allow');
+                return true;
+            } catch (e) { return true; }
+        }
+
+        function pscBgCacheIsFresh(key) {
+            const mem = pscProductCache[key];
+            if (mem && (Date.now() - mem.ts) < (PSC_CACHE_TTL_MS - PSC_BG_MIN_TTL_REMAINING_MS)) {
+                return true;
+            }
+            try {
+                const raw = sessionStorage.getItem(key);
+                if (!raw) return false;
+                const parsed = JSON.parse(raw);
+                if (!parsed || typeof parsed.ts !== 'number') return false;
+                return (Date.now() - parsed.ts) < (PSC_CACHE_TTL_MS - PSC_BG_MIN_TTL_REMAINING_MS);
+            } catch (e) { return false; }
+        }
+
+        function pscBgAbort() {
+            if (pscBgController) {
+                try { pscBgController.abort(); } catch (e) {}
+                pscBgController = null;
+                dbgLog('bg ABORT (in-flight)');
+            }
+            if (pscBgTimer) { clearTimeout(pscBgTimer); pscBgTimer = null; dbgLog('bg ABORT (timer)'); }
+            if (pscBgIdleHandle && typeof cancelIdleCallback === 'function') {
+                try { cancelIdleCallback(pscBgIdleHandle); } catch (e) {}
+                pscBgIdleHandle = null;
+                dbgLog('bg ABORT (idle handle)');
+            }
+        }
+
+        function pscBgPrefetchNewItems() {
+            if (!pscBgConnectionOk()) { dbgLog('bg SKIP — connection gate'); return; }
+            if (productSearchInFlight) { dbgLog('bg SKIP — foreground fetch in flight'); return; }
+            if (pscBgInFlight) { dbgLog('bg SKIP — bg already in flight'); return; }
+            if (document.visibilityState !== 'visible') { dbgLog('bg SKIP — tab not visible'); return; }
+
+            const effectiveQuery = (currentQuery || '').trim() || 'electronics';
+            const key = cacheKey(activeCategory, effectiveQuery);
+
+            if (pscBgCacheIsFresh(key)) { dbgLog('bg SKIP — cache still fresh (key =', key + ')'); return; }
+
+            pscBgInFlight = true;
+
+            pscBgController = new AbortController();
+
+            let url = '/api/products?q=' + encodeURIComponent(effectiveQuery) + '&_live=' + Date.now();
+            if (activeCategory) url += '&category=' + encodeURIComponent(activeCategory);
+
+            const __t0 = Date.now();
+            dbgLog('bg PREFETCH →', url);
+
+            fetch(url, {
+                cache: 'no-store',
+                credentials: 'same-origin',
+                signal: pscBgController.signal,
+                headers: {'Accept': 'application/json'}
+            })
+            .then(function (r) {
+                if (!r.ok) throw new Error('bg prefetch HTTP ' + r.status);
+                return r.json();
+            })
+            .then(function (data) {
+                if (!data || data.success !== true || !Array.isArray(data.products)) {
+                    dbgLog('bg PREFETCH ignored — bad payload');
+                    return;
+                }
+                cacheWrite(key, data);
+                dbgLog('bg PREFETCH OK |', (Date.now() - __t0) + 'ms |', data.products.length, 'products | key =', key);
+            })
+            .catch(function (err) {
+                if (err && err.name === 'AbortError') {
+                    dbgLog('bg PREFETCH aborted');
+                    return;
+                }
+                console.warn('[bg-loader] prefetch skipped:', err && err.message);
+                dbgLog('bg PREFETCH failed:', err && err.message);
+            })
+            .finally(function () {
+                pscBgInFlight = false;
+                pscBgController = null;
+            });
+        }
+
+        function pscBgSchedule() {
+            pscBgAbort();
+
+            const run = function () {
+                pscBgIdleHandle = null;
+                dbgLog('bg idle callback fired');
+                pscBgPrefetchNewItems();
+            };
+
+            if (typeof requestIdleCallback === 'function') {
+                pscBgIdleHandle = requestIdleCallback(run, { timeout: PSC_BG_IDLE_DELAY_MS });
+                dbgLog('bg scheduled via requestIdleCallback');
+            } else {
+                pscBgTimer = setTimeout(run, PSC_BG_IDLE_DELAY_MS);
+                dbgLog('bg scheduled via setTimeout(' + PSC_BG_IDLE_DELAY_MS + 'ms)');
+            }
+        }
+
+        (function pscBgBoot() {
+            if (document.readyState === 'complete' || document.readyState === 'interactive') {
+                setTimeout(pscBgSchedule, 1500);
+            } else {
+                window.addEventListener('load', function () { setTimeout(pscBgSchedule, 1500); }, { once: true });
+            }
+
+            document.addEventListener('visibilitychange', function () {
+                if (document.visibilityState === 'visible') {
+                    if (!productSearchInFlight) pscBgSchedule();
+                } else {
+                    pscBgAbort();
+                }
+            });
+
+            window.addEventListener('pagehide', pscBgAbort);
+            window.addEventListener('beforeunload', pscBgAbort);
+        })();
+
+        window.pscDebugHelp = function () {
+            if (!window.__pscDebug) {
+                console.log('Debug is OFF. Reload with ?debug=1 to enable.');
+                return;
+            }
+            console.log('%c PSC debug helpers ', 'background:#764ba2;color:#fff;padding:2px 6px;border-radius:3px;font-weight:bold;');
+            console.log('  window.clearProductCache()      → wipe the product cache');
+            console.log('  window.pscCacheSnapshot()       → show every cached key + age');
+            console.log('  window.pscDebugOff()            → turn debug off for this session');
+            console.log('  window.pscBgSchedule()          → manually schedule a background prefetch');
+            console.log('  window.pscBgAbort()             → cancel any pending background work');
+        };
+
+        window.pscCacheSnapshot = function () {
+            if (!window.__pscDebug) {
+                console.log('Debug is OFF. Reload with ?debug=1 to enable.');
+                return;
+            }
+            const now = Date.now();
+            const memRows = Object.keys(pscProductCache).map(k => ({
+                key: k,
+                age_ms: now - pscProductCache[k].ts,
+                fresh: (now - pscProductCache[k].ts) < PSC_CACHE_TTL_MS
+            }));
+            const ssRows = [];
+            try {
+                for (let i = 0; i < sessionStorage.length; i++) {
+                    const k = sessionStorage.key(i);
+                    if (!k || k.indexOf(PSC_CACHE_PREFIX) !== 0) continue;
+                    try {
+                        const p = JSON.parse(sessionStorage.getItem(k));
+                        ssRows.push({
+                            key: k,
+                            age_ms: now - p.ts,
+                            fresh: (now - p.ts) < PSC_CACHE_TTL_MS
+                        });
+                    } catch (e) {}
+                }
+            } catch (e) {}
+            console.groupCollapsed('[psc-dbg] cache snapshot — ' + memRows.length + ' mem / ' + ssRows.length + ' sessionStorage');
+            console.table(memRows);
+            console.table(ssRows);
+            console.groupEnd();
+        };
+
+        window.pscDebugOff = function () {
+            try { sessionStorage.removeItem('psc_debug'); } catch (e) {}
+            window.__pscDebug = false;
+            console.log('[psc-dbg] debug OFF (effective immediately; will not persist across reloads)');
+        };
+
+        if (window.__pscDebug) {
+            dbgLog('debug helpers ready — call window.pscDebugHelp() for a list');
+        }
+
+        loadWalletChip();
+        renderCart();
+    </script>
+    {% include '_purchase_request_modal.html' %}
+    {% include '_kyc_modal.html' %}
+
+    
+
+    <!-- BEGIN_PSC_WALLET_RUNTIME -->
+    <script>
+    (function(){
+      "use strict";
+      function el(id){ return document.getElementById(id); }
+      function getWallet(){
+        try { if (typeof clientWallet !== "undefined" && clientWallet) return clientWallet; } catch(e){}
+        try { if (window.__pscWallet) return window.__pscWallet; } catch(e){}
+        try { var w = localStorage.getItem("psc_wallet"); if (w) { window.__pscWallet = w; return w; } } catch(e){}
+        return "";
+      }
+      function setStatus(id, msg, isErr){
+        var s = el(id); if (!s) return;
+        s.style.color = isErr ? "#b91c1c" : "#166534";
+        s.textContent = msg || "";
+      }
+      function show(view){
+        var panel = el("pscPanel"); if (!panel) return;
+        panel.style.display = "block";
+        panel.style.visibility = "visible";
+        panel.style.opacity = "1";
+        var views = panel.querySelectorAll("[data-psc-view]");
+        for (var i=0;i<views.length;i++){
+          views[i].style.display = (views[i].getAttribute("data-psc-view") === view) ? "block" : "none";
+        }
+        if (view === "balance") refreshBalance();
+        try { panel.scrollIntoView({ behavior: "smooth", block: "center" }); } catch(e){}
+      }
+      function hide(){ var p = el("pscPanel"); if (p) p.style.display = "none"; }
+
+      var triggers = {
+        deposit:  el("pscLinkDeposit"),
+        balance:  el("pscLinkBalance"),
+        withdraw: el("pscLinkWithdraw")
+      };
+      Object.keys(triggers).forEach(function(k){
+        var t = triggers[k]; if (!t) return;
+        t.addEventListener("click", function(e){
+          e.preventDefault();
+          var panel = el("pscPanel");
+          var alreadyOpen = panel && panel.style.display === "block";
+          var viewOpen = null;
+          if (panel) { var v = panel.querySelector('[data-psc-view="'+k+'"]'); viewOpen = v && v.style.display === "block" ? k : null; }
+          if (alreadyOpen && viewOpen === k) { hide(); return; }
+          show(k);
+          try { t.blur(); } catch(e){}
+        });
+      });
+
+      fetch("/api/account/me", { credentials: "same-origin" }).then(function(r){ return r.json(); }).catch(function(){});
+
+      function doDeposit(){
+        var amount  = parseFloat((el("pscDepAmount")||{}).value || "0");
+        var channel = (el("pscDepChannel")||{}).value || "card";
+        var gateway = (el("pscDepGateway")||{}).value || "flutterwave";
+        var target  = (el("pscDepTarget")||{}).value  || "spendable";
+        var wallet  = getWallet();
+        if (!wallet) { setStatus("pscDepStatus", "Please log in first.", true); return; }
+        if (!amount || amount < 1) { setStatus("pscDepStatus", "Enter an amount of at least 1 KSh.", true); return; }
+
+        // === MOONPAY / COINGATE ROUTING ===
+        if (gateway === "moonpay") {
+          var cryptoEl = el("pscDepCrypto");
+          var crypto = cryptoEl ? cryptoEl.value : "usdt";
+          if (!crypto) { setStatus("pscDepStatus", "Pick a crypto currency first.", true); return; }
+          setStatus("pscDepStatus", "Creating MoonPay checkout…", false);
+          fetch("/api/psc/topup/initiate_mp", {
+            method: "POST", credentials: "same-origin",
+            headers: {"Content-Type": "application/json"},
+            body: JSON.stringify({
+              wallet: wallet,
+              amount_kes: amount,
+              crypto_currency: crypto,
+              target: target,
+              redirect_url: location.origin + "/psc_topup_return"
+            })
+          })
+          .then(function(r){ return r.json(); })
+          .then(function(d){
+            if (!d || !d.success) { setStatus("pscDepStatus", (d && d.message) || "MoonPay deposit failed.", true); return; }
+            if (d.checkout_url) {
+              setStatus("pscDepStatus", "Redirecting to MoonPay…", false);
+              try { sessionStorage.setItem("psc_deposit_target", target); } catch(e){}
+              location.href = d.checkout_url; return;
+            }
+            setStatus("pscDepStatus", (d.message || "MoonPay order created."), false);
+          })
+          .catch(function(e){ setStatus("pscDepStatus", "Error: " + e, true); });
+          return;
+        }
+
+        if (gateway === "coingate") {
+          var cryptoEl2 = el("pscDepCrypto");
+          var crypto2 = cryptoEl2 ? cryptoEl2.value : "usdt";
+          if (!crypto2) { setStatus("pscDepStatus", "Pick a crypto currency first.", true); return; }
+          setStatus("pscDepStatus", "Creating CoinGate checkout…", false);
+          fetch("/api/psc/topup/initiate_cg", {
+            method: "POST", credentials: "same-origin",
+            headers: {"Content-Type": "application/json"},
+            body: JSON.stringify({
+              wallet: wallet,
+              amount_kes: amount,
+              receive_currency: crypto2,
+              target: target,
+              redirect_url: location.origin + "/psc_topup_return"
+            })
+          })
+          .then(function(r){ return r.json(); })
+          .then(function(d){
+            if (!d || !d.success) { setStatus("pscDepStatus", (d && d.message) || "CoinGate deposit failed.", true); return; }
+            if (d.checkout_url) {
+              setStatus("pscDepStatus", "Redirecting to CoinGate…", false);
+              try { sessionStorage.setItem("psc_deposit_target", target); } catch(e){}
+              location.href = d.checkout_url; return;
+            }
+            setStatus("pscDepStatus", (d.message || "CoinGate order created."), false);
+          })
+          .catch(function(e){ setStatus("pscDepStatus", "Error: " + e, true); });
+          return;
+        }
+
+        // === EXISTING FLUTTERWAVE / PAYSTACK FLOW (unchanged) ===
+        setStatus("pscDepStatus", "Creating checkout…", false);
+        fetch("/api/wallet/deposit/initiate", {
+          method: "POST", credentials: "same-origin",
+          headers: {"Content-Type": "application/json"},
+          body: JSON.stringify({ wallet: wallet, amount_kes: amount, channel: channel, gateway: gateway, target: target, redirect_url: location.origin + "/psc_topup_return" })
+        })
+        .then(function(r){ return r.json(); })
+        .then(function(d){
+          if (!d || !d.success) { setStatus("pscDepStatus", (d && d.message) || "Deposit failed.", true); return; }
+          if (d.checkout_url) {
+            setStatus("pscDepStatus", "Redirecting to complete payment…", false);
+            try { sessionStorage.setItem("psc_deposit_target", target); } catch(e){}
+            location.href = d.checkout_url; return;
+          }
+          setStatus("pscDepStatus", (d.message || "Deposit created."), false);
+        })
+        .catch(function(e){ setStatus("pscDepStatus", "Error: " + e, true); });
+      }
+      var depBtn = el("pscDepNow"); if (depBtn) depBtn.addEventListener("click", doDeposit);
+
+      function refreshBalance(){
+        var wallet = getWallet();
+        if (!wallet) { setStatus("pscBalStatus", "Please log in first.", true); return; }
+        setStatus("pscBalStatus", "Loading…", false);
+        fetch("/api/wallet/overview/" + encodeURIComponent(wallet), { credentials: "same-origin" })
+          .then(function(r){ return r.json(); })
+          .then(function(d){
+            if (!d || !d.success) { setStatus("pscBalStatus", (d && d.message) || "Could not load balance.", true); return; }
+            var b = d.balances || {};
+            function setText(id, v){ var e = el(id); if (e) e.textContent = (v === undefined || v === null) ? "0.00" : v; }
+            setText("pscBWallet",  b.wallet_psc);
+            setText("pscBSavings", b.savings_psc);
+            setText("pscBDeposit", b.deposit_psc);
+            setText("pscBBonus",   b.bonus_psc);
+            setText("pscBHeld",    b.held_psc);
+            setText("pscBTotal",   b.total_psc);
+            setText("pscBKes",     "KES " + (b.total_kes || 0));
+            setStatus("pscBalStatus", "Updated just now.", false);
+          })
+          .catch(function(e){ setStatus("pscBalStatus", "Error: " + e, true); });
+      }
+      var balBtn = el("pscBalRefresh"); if (balBtn) balBtn.addEventListener("click", refreshBalance);
+
+      var wdMethod = el("pscWdMethod");
+      if (wdMethod) {
+        wdMethod.addEventListener("change", function(){
+          var f = el("pscWdBandFields"); if (!f) return;
+          f.style.display = (this.value === "bank") ? "flex" : "none";
+        });
+      }
+      var wdBtn = el("pscWdNow");
+      if (wdBtn) {
+        wdBtn.addEventListener("click", function(){
+          var amount = parseFloat((el("pscWdPsc")||{}).value || "0");
+          var method = (el("pscWdMethod")||{}).value || "mpesa";
+          var bankCode = ((el("pscWdBankCode")||{}).value || "").trim();
+          var account  = ((el("pscWdAccount")||{}).value  || "").trim();
+          var wallet = getWallet();
+          if (!wallet) { setStatus("pscWdStatus", "Please log in first.", true); return; }
+          if (!amount || amount < 1) { setStatus("pscWdStatus", "Minimum withdrawal is 1 PSC.", true); return; }
+          if (method === "bank" && (!bankCode || !account)) { setStatus("pscWdStatus", "Bank code and account number are required.", true); return; }
+          setStatus("pscWdStatus", "Submitting request…", false);
+          var payload = { wallet: wallet, amount_psc: amount, method: method };
+          if (method === "bank") { payload.bank_code = bankCode; payload.destination = account; }
+          fetch("/api/wallet/withdraw/highvalue", {
+            method: "POST", credentials: "same-origin",
+            headers: {"Content-Type": "application/json"},
+            body: JSON.stringify(payload)
+          })
+          .then(function(r){ return r.json(); })
+          .then(function(d){
+            if (d && d.success === false && d.gate === "kyc_required") {
+              setStatus("pscWdStatus", "Identity verification required. Opening KYC form…", false);
+              if (typeof window.pscOpenKycModal === "function") {
+                window.pscOpenKycModal(function(verified){
+                  if (verified) { setStatus("pscWdStatus", "KYC verified. Retrying withdrawal…", false); setTimeout(function(){ wdBtn.click(); }, 200); }
+                  else { setStatus("pscWdStatus", "KYC not completed. Withdrawal cancelled.", true); }
+                });
+              } else {
+                setStatus("pscWdStatus", "KYC required, but the form is unavailable. Please refresh.", true);
+              }
+              return;
+            }
+            if (!d || !d.success) { setStatus("pscWdStatus", (d && d.message) || "Withdrawal request failed.", true); return; }
+            setStatus("pscWdStatus", d.message || ("Withdrawal " + (d.withdrawal_id||"") + " created."), false);
+          })
+          .catch(function(e){ setStatus("pscWdStatus", "Error: " + e, true); });
+        });
+      }
+      var usageBtn = el("pscWdUsage");
+      if (usageBtn) {
+        usageBtn.addEventListener("click", function(){
+          var wallet = getWallet();
+          if (!wallet) { setStatus("pscWdStatus", "Please log in first.", true); return; }
+          fetch("/api/wallet/withdraw/daily-usage/" + encodeURIComponent(wallet), { credentials: "same-origin" })
+            .then(function(r){ return r.json(); })
+            .then(function(d){
+              if (!d || !d.success) { setStatus("pscWdStatus", "Could not load usage.", true); return; }
+              setStatus("pscWdStatus", "Used today: KES " + (d.used_today_kes||0) + " of KES " + (d.daily_max_kes||0) + ". Remaining: KES " + (d.remaining_today_kes||0) + ".", false);
+            })
+            .catch(function(e){ setStatus("pscWdStatus", "Error: " + e, true); });
+        });
+      }
+
+      document.addEventListener("keydown", function(e){ if (e.key === "Escape") hide(); });
+
+// ==== PAYMENT LINK UI ====
+(function(){
+  var trigger   = document.getElementById("pscLinkPayLink");
+  var createBtn = document.getElementById("pscLinkCreate");
+  var refreshBtn= document.getElementById("pscLinkRefresh");
+  var statusEl  = document.getElementById("pscLinkStatus");
+  var resultEl  = document.getElementById("pscLinkResult");
+  var listEl    = document.getElementById("pscLinkList");
+  var wrapEl    = document.getElementById("pscLinkListWrap");
+  var paylinkView = document.querySelector('[data-psc-view="paylink"]');
+  var tabSentEl = document.getElementById("pscTabSent");
+  var tabPaidEl = document.getElementById("pscTabPaid");
+  var tabCountEl= document.getElementById("pscTabCount");
+
+  var allLinks = [];
+  var openTab  = null;
+
+  function setStatus(msg, isErr){
+    if(!statusEl) return;
+    statusEl.style.color = isErr ? "#b91c1c" : "#166534";
+    statusEl.textContent = msg || "";
+  }
+  function walletOrNull(){
+    try { if (typeof clientWallet !== "undefined" && clientWallet) return clientWallet; } catch(e){}
+    try { if (window.__pscWallet) return window.__pscWallet; } catch(e){}
+    try { return localStorage.getItem("psc_wallet") || ""; } catch(e){ return ""; }
+  }
+
+  function applyTabStyles(){
+    var sentActive = (openTab === "sent");
+    var paidActive = (openTab === "paid");
+
+    if(tabSentEl){
+      tabSentEl.setAttribute("data-active", sentActive ? "true" : "false");
+      tabSentEl.style.color = sentActive ? "#1a1a2e" : "#64748b";
+    }
+    if(tabPaidEl){
+      tabPaidEl.setAttribute("data-active", paidActive ? "true" : "false");
+      tabPaidEl.style.color = paidActive ? "#1a1a2e" : "#64748b";
+    }
+    if(tabCountEl){
+      var paidCount = allLinks.filter(function(L){
+        return Number(L.collected_psc||0) > 0 || (L.payments && L.payments.length);
+      }).length;
+      if(openTab === "paid")      tabCountEl.textContent = "(" + paidCount + " paid)";
+      else if(openTab === "sent") tabCountEl.textContent = "(" + allLinks.length + " total)";
+      else                        tabCountEl.textContent = "(" + allLinks.length + " total, " + paidCount + " paid)";
+    }
+
+    // *** FIX *** Force the wrapper's display directly (inline style beats CSS attribute selectors)
+    if(wrapEl){
+      if(openTab){
+        wrapEl.style.display = "block";
+        wrapEl.setAttribute("data-open", "true");
+      } else {
+        wrapEl.style.display = "none";
+        wrapEl.setAttribute("data-open", "false");
+      }
+    }
+    if(paylinkView){
+      if(openTab){ paylinkView.classList.add("psc-paylink-wide"); }
+      else       { paylinkView.classList.remove("psc-paylink-wide"); }
+    }
+  }
+
+  function renderLinks(){
+    if(!listEl) return;
+    if(!openTab){
+      // *** FIX *** when closed, blank the list so the wrapper has nothing to show
+      listEl.innerHTML = "";
+      return;
+    }
+
+    var links = allLinks || [];
+    var paid  = links.filter(function(L){
+      return Number(L.collected_psc||0) > 0 || (L.payments && L.payments.length);
+    });
+    var visible = (openTab === "paid") ? paid : links;
+
+    if(!visible.length){
+      listEl.innerHTML = (openTab === "paid")
+        ? '<div style="color:#64748b;font-size:0.9rem;">No paid links yet.</div>'
+        : '<div style="color:#64748b;font-size:0.9rem;">No links yet.</div>';
+      return;
+    }
+
+    var html = '';
+    visible.forEach(function(L){
+      var collected = Number(L.collected_psc || 0);
+      var isPaid = collected > 0 || (L.payments && L.payments.length);
+      var isRevoked = (L.status === "REVOKED");
+      var cls = "psc-link-card";
+      if(isPaid) cls += " psc-link-card-paid";
+      if(isRevoked) cls += " psc-link-card-revoked";
+      html += '<div class="' + cls + '" style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:10px;font-size:0.88rem;">'
+           +    '<div><b>' + (L.note || "(no note)") + '</b> &mdash; ' + L.status
+           +      (isPaid ? ' <span style="color:#065f46;font-weight:700;">&middot; PAID</span>' : '') + '</div>'
+           +    '<div style="color:#475569;">Collected: <b>' + collected.toFixed(2) + '</b> PSC (KES ' + Number(L.collected_kes || 0).toFixed(2) + ')</div>'
+           +    '<div style="word-break:break-all;color:#0d6efd;margin-top:4px;"><a href="' + L.url + '" target="_blank" style="color:#0d6efd;">' + L.url + '</a></div>';
+      if(isPaid && Array.isArray(L.payments) && L.payments.length){
+        html += '<div style="margin-top:6px;padding-top:6px;border-top:1px dashed #cbd5e1;font-size:0.82rem;color:#334155;">'
+             +    '<div style="font-weight:700;color:#065f46;margin-bottom:3px;">Payments:</div>';
+        L.payments.forEach(function(tx){ html += '<div style="padding:2px 0;">&bull; ' + tx + '</div>'; });
+        html += '</div>';
+      }
+      if(L.status === "ACTIVE"){
+        html += '<div style="margin-top:6px;"><button data-revoke="' + L.token + '" style="background:#dc3545;color:#fff;border:0;border-radius:6px;padding:5px 10px;cursor:pointer;font-size:0.8rem;">Revoke</button></div>';
+      }
+      html += '</div>';
+    });
+    listEl.innerHTML = html;
+    listEl.querySelectorAll("button[data-revoke]").forEach(function(b){
+      b.addEventListener("click", function(){
+        var tok = b.getAttribute("data-revoke");
+        fetch("/api/payment_link/" + tok + "/revoke", {method:"POST", credentials:"same-origin"})
+          .then(function(r){ return r.json(); })
+          .then(function(){ loadLinks(); });
+      });
+    });
+  }
+
+  function toggleTab(tab){
+    if(tab !== "sent" && tab !== "paid") return;
+    // *** FIX *** toggle off when the same tab is clicked again
+    openTab = (openTab === tab) ? null : tab;
+    applyTabStyles();
+    renderLinks();
+  }
+
+  function loadLinks(){
+    var w = walletOrNull();
+    if(!w){ setStatus("Please log in first.", true); return; }
+    setStatus("Loading your links...", false);
+    fetch("/api/payment_link/list/" + encodeURIComponent(w), { credentials:"same-origin" })
+      .then(function(r){ return r.json(); })
+      .then(function(d){
+        if(!d || !d.success){ setStatus((d && d.message) || "Could not load links.", true); return; }
+        allLinks = d.links || [];
+        applyTabStyles();
+        renderLinks();
+        setStatus("Loaded " + allLinks.length + " link(s).", false);
+      })
+      .catch(function(e){ setStatus("Error: " + e, true); });
+  }
+
+  if(tabSentEl) tabSentEl.addEventListener("click", function(e){ e.preventDefault(); toggleTab("sent"); });
+  if(tabPaidEl) tabPaidEl.addEventListener("click", function(e){ e.preventDefault(); toggleTab("paid"); });
+
+  if(trigger){
+    trigger.addEventListener("click", function(e){
+      e.preventDefault();
+      var panel = document.getElementById("pscPanel");
+      if(!panel) return;
+      panel.style.display = "block";
+      panel.querySelectorAll("[data-psc-view]").forEach(function(v){
+        v.style.display = v.getAttribute("data-psc-view") === "paylink" ? "block" : "none";
+      });
+      try { panel.scrollIntoView({behavior:"smooth", block:"center"}); } catch(e){}
+      openTab = null;
+      applyTabStyles();
+      renderLinks();
+      loadLinks();
+    });
+  }
+
+  if(createBtn){
+    createBtn.addEventListener("click", function(){
+      var w = walletOrNull();
+      if(!w){ setStatus("Please log in first.", true); return; }
+      var amt = parseFloat((document.getElementById("pscLinkAmount").value || "0")) || 0;
+      var note = (document.getElementById("pscLinkNote").value || "").trim();
+      var target = document.getElementById("pscLinkTarget").value || "spendable";
+      setStatus("Creating link...", false);
+      resultEl.innerHTML = "";
+      fetch("/api/payment_link/create", {
+        method: "POST", credentials: "same-origin",
+        headers: {"Content-Type":"application/json"},
+        body: JSON.stringify({ amount_kes: amt, note: note, target: target })
+      })
+      .then(function(r){ return r.json(); })
+      .then(function(d){
+        if(!d || !d.success){ setStatus((d && d.message) || "Could not create link.", true); return; }
+        setStatus("Link created.", false);
+        resultEl.innerHTML = '<div style="background:#ecfdf5;border:1px solid #a7f3d0;border-radius:8px;padding:12px;font-size:0.9rem;">'
+        + '<div style="color:#065f46;font-weight:700;margin-bottom:6px;">Share this link:</div>'
+        + '<div style="word-break:break-all;margin-bottom:8px;"><a href="' + d.url + '" target="_blank" style="color:#0d6efd;">' + d.url + '</a></div>'
+        + '<button id="pscCopyLink" style="background:#667eea;color:#fff;border:0;border-radius:6px;padding:6px 12px;cursor:pointer;">Copy</button>'
+        + '</div>';
+        var copyBtn = document.getElementById("pscCopyLink");
+        if(copyBtn){ copyBtn.addEventListener("click", function(){ try { navigator.clipboard.writeText(d.url); copyBtn.textContent = "Copied!"; } catch(e){} }); }
+        openTab = "sent";
+        applyTabStyles();
+        loadLinks();
+      })
+      .catch(function(e){ setStatus("Error: " + e, true); });
+    });
+  }
+
+  if(refreshBtn) refreshBtn.addEventListener("click", function(){
+    if(!openTab) openTab = "sent";
+    applyTabStyles();
+    loadLinks();
+  });
+})();
+// ==== END PAYMENT LINK UI ====
+
+      (function hydrateWalletOnLoad(){
+        if (getWallet()) { if (typeof loadWalletChip === "function") { try { loadWalletChip(); } catch(e){} } return; }
+        fetch("/api/account/me", { credentials: "same-origin" })
+          .then(function(r){ return r.json(); })
+          .then(function(d){
+            if (!d || !d.logged_in || !d.wallet) return;
+            window.__pscWallet = d.wallet;
+            try { localStorage.setItem("psc_wallet", d.wallet); } catch(e){}
+            try { clientWallet = d.wallet; } catch(e){}
+            try { var acct = document.getElementById("accountBtn"); if (acct && d.user && d.user.name) acct.textContent = d.user.name; } catch(e){}
+            if (typeof loadWalletChip === "function") { try { loadWalletChip(); } catch(e){} }
+          })
+          .catch(function(){});
+      })();
+    })();
+    </script>
+    <!-- END_PSC_WALLET_RUNTIME -->
+
+    <!-- BEGIN_PSC_WALLET_DOTS -->
+<script>
+(function () {
+  var wrap  = document.getElementById("pscWalletStrip");
+  var btn   = document.getElementById("pscWalletDots");
+  var menu  = document.getElementById("pscWalletMenu");
+  var panel = document.getElementById("pscPanel");
+  if (!wrap || !btn || !menu) return;
+
+  function openMenu() {
+    menu.hidden = false;
+    btn.setAttribute("aria-expanded", "true");
+  }
+  function closeMenu() {
+    menu.hidden = true;
+    btn.setAttribute("aria-expanded", "false");
+  }
+  function closeAll() {
+    closeMenu();
+    if (panel) panel.style.display = "none";
+  }
+  function toggleMenu(e) {
+    e.preventDefault();
+    e.stopPropagation();
+    if (menu.hidden) openMenu(); else closeAll();
+  }
+
+  btn.addEventListener("click", toggleMenu);
+
+  document.addEventListener("pointerdown", function (e) {
+    var menuOpen  = !menu.hidden;
+    var panelOpen = panel && panel.style.display === "block";
+    if (!menuOpen && !panelOpen) return;
+    if (wrap.contains(e.target)) return;
+    if (panel && panel.contains(e.target)) return;
+    closeAll();
+  });
+
+  document.addEventListener("keydown", function (e) {
+    if (e.key === "Escape") closeAll();
+  });
+
+  menu.querySelectorAll("a").forEach(function (a) {
+    a.addEventListener("click", function () { closeMenu(); });
+  });
+})();
+</script>
+<!-- END_PSC_WALLET_DOTS -->
+
+    <!-- BEGIN_MOONPAY_FRONTEND_LOADER -->
+    <script>
+    (function(){
+      "use strict";
+      function el(id){ return document.getElementById(id); }
+
+      // 1. Populate gateway dropdown from /api/payments/gateways
+      function loadGateways(){
+        var sel = el("pscDepGateway");
+        if (!sel) return;
+        fetch("/api/payments/gateways", { credentials: "same-origin" })
+          .then(function(r){ return r.json(); })
+          .then(function(d){
+            if (!d || !d.success || !Array.isArray(d.gateways)) return;
+            var html = "";
+            d.gateways.forEach(function(g){
+              html += '<option value="' + g.key + '">' + (g.label || g.key) + '</option>';
+            });
+            if (html) sel.innerHTML = html;
+            sel.addEventListener("change", onGatewayChange);
+            onGatewayChange();
+          })
+          .catch(function(e){ console.warn("[gateways] load failed:", e); });
+      }
+
+      // 2. Show/hide crypto dropdown based on selected gateway
+      function onGatewayChange(){
+        var sel = el("pscDepGateway");
+        var cryptoBox = el("pscDepCrypto");
+        if (!sel || !cryptoBox) return;
+        var gw = sel.value;
+        if (gw === "moonpay") {
+          loadCryptos("/api/psc/topup/cryptos_mp", "cryptos", cryptoBox);
+        } else if (gw === "coingate") {
+          loadCryptos("/api/psc/topup/currencies_cg", "currencies", cryptoBox);
+        } else {
+          cryptoBox.style.display = "none";
+          cryptoBox.innerHTML = "";
+        }
+      }
+
+      // 3. Fetch crypto list for a gateway
+      function loadCryptos(url, arrayKey, cryptoBox){
+        cryptoBox.style.display = "inline-block";
+        cryptoBox.innerHTML = '<option value="">Loading…</option>';
+        fetch(url, { credentials: "same-origin" })
+          .then(function(r){ return r.json(); })
+          .then(function(d){
+            if (!d || !d.success) {
+              cryptoBox.innerHTML = '<option value="">(no cryptos)</option>';
+              return;
+            }
+            var list = d[arrayKey] || [];
+            if (!list.length) {
+              cryptoBox.innerHTML = '<option value="">(no cryptos)</option>';
+              return;
+            }
+            var html = "";
+            list.forEach(function(c){
+              var label = c.label || c.key;
+              html += '<option value="' + c.key + '">' + label + '</option>';
+            });
+            cryptoBox.innerHTML = html;
+          })
+          .catch(function(e){
+            console.warn("[cryptos] load failed:", e);
+            cryptoBox.innerHTML = '<option value="">(error)</option>';
+          });
+      }
+
+      if (document.readyState === "loading") {
+        document.addEventListener("DOMContentLoaded", loadGateways);
+      } else {
+        loadGateways();
+      }
+    })();
+    </script>
+    <!-- END_MOONPAY_FRONTEND_LOADER -->
+</body>
+</html>

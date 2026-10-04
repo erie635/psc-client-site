@@ -1,0 +1,206 @@
+﻿<!-- ============================================================
+     PSC Purchase Request - Full in-page form (replaces prompt())
+     ============================================================ -->
+<div id="pscPurchaseOverlay" class="psc-overlay" aria-hidden="true">
+  <div class="psc-modal" role="dialog" aria-modal="true" aria-labelledby="pscPurchaseTitle">
+    <div class="psc-modal-header">
+      <h2 id="pscPurchaseTitle">Buy PSC – Pulse Shopping Coin</h2>
+      <button type="button" class="psc-close" id="pscPurchaseClose" aria-label="Close">&times;</button>
+    </div>
+
+    <form id="pscPurchaseForm" novalidate>
+      <div class="psc-row">
+        <label for="pscKsh">Amount in KSh <span class="req">*</span></label>
+        <input type="number" id="pscKsh" name="ksh" min="10" step="1" required
+               placeholder="e.g. 5000" autocomplete="off">
+        <small class="hint">Rate: 1 PSC = KSh 100</small>
+      </div>
+
+      <div class="psc-row">
+        <label for="pscAmount">You will receive (PSC)</label>
+        <input type="text" id="pscAmount" name="psc" readonly value="0">
+      </div>
+
+      <div class="psc-row">
+        <label for="pscName">Full name <span class="req">*</span></label>
+        <input type="text" id="pscName" name="name" required autocomplete="name"
+               placeholder="As registered on M-Pesa">
+      </div>
+
+      <div class="psc-row">
+        <label for="pscPhone">M-Pesa phone number <span class="req">*</span></label>
+        <input type="tel" id="pscPhone" name="phone" required
+               pattern="^(?:\+?254|0)7\d{8}$"
+               placeholder="07XXXXXXXX or +2547XXXXXXXX" autocomplete="tel">
+        <small class="hint">We will send an STK push to this number.</small>
+      </div>
+
+      <div class="psc-row">
+        <label for="pscEmail">Email (optional)</label>
+        <input type="email" id="pscEmail" name="email" autocomplete="email"
+               placeholder="you@example.com">
+      </div>
+
+      <div class="psc-row">
+        <label for="pscNotes">Notes (optional)</label>
+        <textarea id="pscNotes" name="notes" rows="2"
+                  placeholder="Anything the admin should know"></textarea>
+      </div>
+
+      <div id="pscFormMsg" class="psc-msg" role="status" aria-live="polite"></div>
+
+      <div class="psc-actions">
+        <button type="button" class="psc-btn psc-btn-ghost" id="pscPurchaseCancel">Cancel</button>
+        <button type="submit" class="psc-btn psc-btn-primary" id="pscPurchaseSubmit">
+          Submit Purchase Request
+        </button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<style>
+  .psc-overlay{
+    position:fixed; inset:0; background:rgba(15,10,40,.75);
+    display:none; align-items:center; justify-content:center;
+    z-index:9999; padding:16px; overflow-y:auto;
+  }
+  .psc-overlay.open{ display:flex; }
+  .psc-modal{
+    background:#1b1533; color:#f5f3ff; width:100%; max-width:480px;
+    border-radius:14px; padding:22px 22px 18px; box-shadow:0 20px 60px rgba(0,0,0,.6);
+    border:1px solid #3a2f66;
+  }
+  .psc-modal-header{ display:flex; justify-content:space-between; align-items:center; margin-bottom:14px; }
+  .psc-modal-header h2{ font-size:18px; margin:0; color:#d6c9ff; }
+  .psc-close{ background:none; border:0; color:#b9a9e6; font-size:26px; line-height:1; cursor:pointer; }
+  .psc-close:hover{ color:#fff; }
+  .psc-row{ display:flex; flex-direction:column; margin-bottom:12px; }
+  .psc-row label{ font-size:13px; margin-bottom:5px; color:#cbc2e9; }
+  .psc-row .req{ color:#ff6b9a; }
+  .psc-row input, .psc-row textarea{
+    background:#120d26; border:1px solid #3a2f66; color:#fff;
+    padding:10px 12px; border-radius:8px; font-size:14px; outline:none;
+  }
+  .psc-row input:focus, .psc-row textarea:focus{ border-color:#8a6bff; box-shadow:0 0 0 2px rgba(138,107,255,.25); }
+  .psc-row input[readonly]{ background:#0d0a1c; color:#9f95c9; }
+  .psc-row .hint{ font-size:11px; color:#8f86b5; margin-top:4px; }
+  .psc-actions{ display:flex; gap:10px; justify-content:flex-end; margin-top:12px; }
+  .psc-btn{ padding:10px 18px; border-radius:8px; border:0; cursor:pointer; font-size:14px; font-weight:600; }
+  .psc-btn-primary{ background:linear-gradient(90deg,#8a6bff,#5a3df0); color:#fff; }
+  .psc-btn-primary:disabled{ opacity:.6; cursor:not-allowed; }
+  .psc-btn-ghost{ background:transparent; color:#cbc2e9; border:1px solid #3a2f66; }
+  .psc-msg{ font-size:13px; min-height:18px; margin-top:4px; }
+  .psc-msg.err{ color:#ff8aa8; }
+  .psc-msg.ok{ color:#7bffb0; }
+  @media (max-width:520px){ .psc-modal{ padding:18px 14px; } }
+</style>
+
+<script>
+(function () {
+  const RATE = 100; // 1 PSC = KSh 100
+
+  const overlay  = document.getElementById('pscPurchaseOverlay');
+  const form     = document.getElementById('pscPurchaseForm');
+  const kshEl    = document.getElementById('pscKsh');
+  const pscEl    = document.getElementById('pscAmount');
+  const nameEl   = document.getElementById('pscName');
+  const phoneEl  = document.getElementById('pscPhone');
+  const emailEl  = document.getElementById('pscEmail');
+  const notesEl  = document.getElementById('pscNotes');
+  const msgEl    = document.getElementById('pscFormMsg');
+  const submitEl = document.getElementById('pscPurchaseSubmit');
+
+  function openModal() {
+    overlay.classList.add('open');
+    overlay.setAttribute('aria-hidden', 'false');
+    document.body.style.overflow = 'hidden';
+    setTimeout(() => kshEl.focus(), 50);
+  }
+  function closeModal() {
+    overlay.classList.remove('open');
+    overlay.setAttribute('aria-hidden', 'true');
+    document.body.style.overflow = '';
+    msgEl.textContent = '';
+    msgEl.className = 'psc-msg';
+  }
+
+  document.getElementById('pscPurchaseClose').addEventListener('click', closeModal);
+  document.getElementById('pscPurchaseCancel').addEventListener('click', closeModal);
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) closeModal(); });
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && overlay.classList.contains('open')) closeModal();
+  });
+
+  // Auto-calc PSC amount
+  kshEl.addEventListener('input', () => {
+    const v = parseFloat(kshEl.value) || 0;
+    pscEl.value = v > 0 ? (v / RATE).toFixed(2) : '0';
+  });
+
+  // Normalize phone: 07XXXXXXXX or +2547XXXXXXXX
+  function normalizePhone(p) {
+    p = (p || '').replace(/\s|-/g, '');
+    if (/^0\d{9}$/.test(p)) return '+254' + p.slice(1);
+    if (/^\+254\d{9}$/.test(p)) return p;
+    if (/^254\d{9}$/.test(p)) return '+' + p;
+    return null;
+  }
+
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    msgEl.textContent = '';
+    msgEl.className = 'psc-msg';
+
+    const ksh   = parseFloat(kshEl.value);
+    const name  = nameEl.value.trim();
+    const phone = normalizePhone(phoneEl.value);
+    const email = emailEl.value.trim();
+    const notes = notesEl.value.trim();
+
+    if (!ksh || ksh < 10)          return showErr('Enter an amount of at least KSh 10.');
+    if (!name)                     return showErr('Please enter your full name.');
+    if (!phone)                    return showErr('Enter a valid M-Pesa number (07XXXXXXXX).');
+
+    submitEl.disabled = true;
+    submitEl.textContent = 'Submitting…';
+
+    try {
+      const res = await fetch('/api/wallet/purchase_request', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'same-origin',
+        body: JSON.stringify({
+          ksh: ksh,
+          psc: parseFloat((ksh / RATE).toFixed(2)),
+          name: name,
+          phone: phone,
+          email: email || null,
+          notes: notes || null
+        })
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || data.ok === false) {
+        throw new Error(data.error || data.message || ('Server error ' + res.status));
+      }
+      msgEl.className = 'psc-msg ok';
+      msgEl.textContent = data.message || 'Purchase request submitted. Await admin approval.';
+      setTimeout(closeModal, 1800);
+    } catch (err) {
+      showErr(err.message || 'Could not submit. Try again.');
+    } finally {
+      submitEl.disabled = false;
+      submitEl.textContent = 'Submit Purchase Request';
+    }
+  });
+
+  function showErr(m) { msgEl.className = 'psc-msg err'; msgEl.textContent = m; }
+
+  // Expose opener globally so the Buy PSC button can call it
+  window.openPscPurchase = openModal;
+
+  // Wire up any element with data-buy-psc or the visible "Buy PSC" button
+  document.querySelectorAll('[data-buy-psc], .buy-psc-btn, #buyPscBtn, #buy_psc_btn')
+    .forEach(btn => btn.addEventListener('click', (e) => { e.preventDefault(); openModal(); }));
+})();
+</script>

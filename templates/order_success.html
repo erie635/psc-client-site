@@ -1,0 +1,65 @@
+﻿<!DOCTYPE html>
+<html>
+<head>
+    <title>Order Received - PSC</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <style>
+        body {
+            font-family: 'Segoe UI', sans-serif;
+            background: #f5f6fa;
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+        }
+        .card {
+            background: white;
+            padding: 45px 35px;
+            border-radius: 15px;
+            text-align: center;
+            max-width: 500px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+        }
+        .check { font-size: 70px; margin-bottom: 15px; }
+        h1 { color: #28a745; margin-bottom: 15px; }
+        p { color: #555; margin-bottom: 12px; line-height: 1.6; }
+        .oid {
+            display: inline-block;
+            background: #f0f4ff;
+            padding: 12px 25px;
+            border-radius: 8px;
+            font-weight: bold;
+            color: #667eea;
+            margin: 20px 0;
+            font-family: monospace;
+            font-size: 1.1rem;
+        }
+        a.btn {
+            display: inline-block;
+            margin-top: 20px;
+            padding: 14px 35px;
+            background: #667eea;
+            color: white;
+            text-decoration: none;
+            border-radius: 8px;
+            font-weight: bold;
+        }
+        a.btn:hover { background: #5568c4; }
+    </style>
+</head>
+<body>
+    <div class="card">
+        <div class="check">✅</div>
+        <h1>Order Placed!</h1>
+        <p>Your order has been received. Our team will call you shortly to confirm delivery.</p>
+        <div class="oid" id="oid">…</div>
+        <p style="font-size: 0.9em; color:#999;">Save this Order ID for reference.</p>
+        <a class="btn" href="/">Back to Shop</a>
+    </div>
+    <script>
+        const oid = new URLSearchParams(window.location.search).get('order_id') || 'N/A';
+        document.getElementById('oid').textContent = oid;
+    </script>
+</body>
+</html>
