@@ -444,13 +444,13 @@ def _launch_browser(p):
     kwargs = {
         "channel": "chrome",
         "headless": True,
-              "args": [
+        "args": [
             "--disable-blink-features=AutomationControlled",
             "--no-sandbox",
-            "--disable-setuid-sandbox",
             "--disable-dev-shm-usage",
             "--disable-gpu",
-            "--window-size=1280,720",
+            "--window-size=1920,1080",
+            "--start-maximized",
             "--disable-features=IsolateOrigins,site-per-process",
             "--disable-site-isolation-trials",
             "--disable-background-timer-throttling",
@@ -459,9 +459,6 @@ def _launch_browser(p):
             "--no-first-run",
             "--no-default-browser-check",
             "--lang=en-KE,en-US,en",
-            "--single-process",
-            "--disable-accelerated-2d-canvas",
-            "--disable-software-rasterizer"
         ],
     }
     proxy_cfg = _playwright_proxy_config()
@@ -659,20 +656,16 @@ MIN_BALANCE_TO_SHOP = 5.0
 CACHE_TTL_SECONDS = 600  # 10 minutes for in-memory product cache
 ADMIN_PHONE = "0796208133"
 
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-DATA_DIR = os.path.join(BASE_DIR, "data")
-os.makedirs(DATA_DIR, exist_ok=True)
+WALLET_DIR = r"C:\Users\erick\Desktop\PSC_Coin_Complete\wallets"
+ORDERS_FILE = r"C:\Users\erick\Desktop\PSC_Coin_Complete\orders_from_clients.json"
+CLIENTS_FILE = r"C:\Users\erick\Desktop\PSC_Coin_Complete\client_registry.json"
 
-WALLET_DIR = os.path.join(DATA_DIR, "wallets")
-ORDERS_FILE = os.path.join(DATA_DIR, "orders_from_clients.json")
-CLIENTS_FILE = os.path.join(DATA_DIR, "client_registry.json")
+ADMIN_CLIENT_WALLETS_FILE = r"C:\Users\erick\Desktop\PSC_Coin_Complete\client_wallets.json"
+ADMIN_LEDGER_FILE = r"C:\Users\erick\Desktop\PSC_Coin_Complete\client_wallet_ledger.json"
 
-ADMIN_CLIENT_WALLETS_FILE = os.path.join(DATA_DIR, "client_wallets.json")
-ADMIN_LEDGER_FILE = os.path.join(DATA_DIR, "client_wallet_ledger.json")
-
-PAYMENTS_FILE         = os.path.join(DATA_DIR, "payments.json")
-WITHDRAWAL_QUEUE_FILE = os.path.join(DATA_DIR, "withdrawal_queue.json")
-PAYOUT_AUDIT_FILE     = os.path.join(DATA_DIR, "payout_audit.json")
+PAYMENTS_FILE         = r"C:\Users\erick\Desktop\PSC_Coin_Complete\payments.json"
+WITHDRAWAL_QUEUE_FILE = r"C:\Users\erick\Desktop\PSC_Coin_Complete\withdrawal_queue.json"
+PAYOUT_AUDIT_FILE     = r"C:\Users\erick\Desktop\PSC_Coin_Complete\payout_audit.json"
 
 MARKUP_DEFAULT = 0.05
 
@@ -765,7 +758,7 @@ auto_share.install(app, port=5001, auto_start=True)
 # Store sessions on disk so server restarts don't log everyone out.
 from flask_session import Session
 app.config["SESSION_TYPE"] = "filesystem"
-app.config["SESSION_FILE_DIR"] = os.path.join(DATA_DIR, "flask_sessions")
+app.config["SESSION_FILE_DIR"] = r"C:\Users\erick\Desktop\PSC_Coin_Complete\flask_sessions"
 app.config["SESSION_PERMANENT"] = True
 app.config["SESSION_USE_SIGNER"] = True
 app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
