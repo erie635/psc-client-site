@@ -2023,14 +2023,8 @@ def _scrape_jiji(q, headers):
         with sync_playwright() as p:
             browser = p.chromium.launch(
                 headless=True,
-                args=[
-                    '--single-process',           # CRITICAL: Saves massive memory on Render
-                    '--no-sandbox',               # Required for Linux servers
-                    '--disable-setuid-sandbox',
-                    '--disable-dev-shm-usage',    # Prevents shared memory crashes
-                    '--disable-gpu',              # Disables graphics rendering
-                    '--disable-images'            # Speeds up scraping and saves memory
-                ]
+                args=["--disable-blink-features=AutomationControlled",
+                      "--no-sandbox", "--disable-dev-shm-usage", "--disable-gpu"],
             )
             page = browser.new_page(
                 user_agent=headers["User-Agent"],
