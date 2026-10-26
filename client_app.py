@@ -170,7 +170,7 @@ def _cache_clear():
 
 
 # ============================================================
-#  PSC Ã¢â‚¬â€ PERSISTENT DISK CACHE (ADDITIVE, NON-BREAKING)
+#  PSC â€” PERSISTENT DISK CACHE (ADDITIVE, NON-BREAKING)
 # ============================================================
 
 DISK_CACHE_FILE = os.path.join(
@@ -442,7 +442,6 @@ def _launch_browser(p):
     ADDITIVE: extra stealth flags to reduce bot-detection surface.
     """
     kwargs = {
-        "channel": "chrome",
         "headless": True,
         "args": [
             "--disable-blink-features=AutomationControlled",
@@ -1258,9 +1257,9 @@ def _add_purchased_psc(address, amount_psc, kes_amount=None, payment_reference="
 
 
 # ============================================================
-# ADDITIVE (Option C) Ã¢â‚¬â€ TARGET-AWARE PSC CREDITING
+# ADDITIVE (Option C) â€” TARGET-AWARE PSC CREDITING
 # Single credit path used by all verifiers/webhooks.
-# target Ã¢Ë†Ë† {"spendable","wallet","savings","deposit"}  (default "spendable")
+# target âˆˆ {"spendable","wallet","savings","deposit"}  (default "spendable")
 # ============================================================
 
 def _normalize_credit_target(target):
@@ -1279,9 +1278,9 @@ def _add_psc_to_target(address, amount_psc, target="spendable",
                        audit_type="TOPUP"):
     """
     Credits PSC into the requested pocket.
-    - spendable Ã¢â€ â€™ wallet_psc (existing behaviour)
-    - savings   Ã¢â€ â€™ savings_psc
-    - deposit   Ã¢â€ â€™ deposit_psc (hold-only; not spent by the shop)
+    - spendable â†’ wallet_psc (existing behaviour)
+    - savings   â†’ savings_psc
+    - deposit   â†’ deposit_psc (hold-only; not spent by the shop)
     Returns (ok, msg, wallet).
     """
     target = _normalize_credit_target(target)
@@ -1789,7 +1788,7 @@ def _scrape_jumia(q, headers):
         products = []
         with sync_playwright() as p:
             browser = p.chromium.launch(
-                channel="chrome", headless=True,
+                headless=True,
                 args=["--disable-blink-features=AutomationControlled",
                       "--no-sandbox", "--disable-dev-shm-usage", "--disable-gpu"],
             )
@@ -1910,7 +1909,7 @@ def _scrape_carrefour(q):
         products = []
         with sync_playwright() as p:
             browser = p.chromium.launch(
-                channel="chrome", headless=True,
+                headless=True,
                 args=["--disable-blink-features=AutomationControlled",
                       "--no-sandbox", "--disable-dev-shm-usage", "--disable-gpu"],
             )
@@ -2023,7 +2022,7 @@ def _scrape_jiji(q, headers):
         products = []
         with sync_playwright() as p:
             browser = p.chromium.launch(
-                channel="chrome", headless=True,
+                headless=True,
                 args=["--disable-blink-features=AutomationControlled",
                       "--no-sandbox", "--disable-dev-shm-usage", "--disable-gpu"],
             )
@@ -2127,7 +2126,7 @@ def _scrape_woocommerce(q, url_template, source_label, category, headers):
         products = []
         with sync_playwright() as p:
             browser = p.chromium.launch(
-                channel="chrome", headless=True,
+                headless=True,
                 args=["--disable-blink-features=AutomationControlled",
                       "--no-sandbox", "--disable-dev-shm-usage", "--disable-gpu"],
             )
@@ -2219,7 +2218,7 @@ def _scrape_magento(q, url_template, source_label, category, headers):
         products = []
         with sync_playwright() as p:
             browser = p.chromium.launch(
-                channel="chrome", headless=True,
+                headless=True,
                 args=["--disable-blink-features=AutomationControlled",
                       "--no-sandbox", "--disable-dev-shm-usage", "--disable-gpu"],
             )
@@ -2320,7 +2319,7 @@ def _scrape_generic_react(q, url_template, source_label, category, headers):
         products = []
         with sync_playwright() as p:
             browser = p.chromium.launch(
-                channel="chrome", headless=True,
+                headless=True,
                 args=["--disable-blink-features=AutomationControlled",
                       "--no-sandbox", "--disable-dev-shm-usage", "--disable-gpu"],
             )
@@ -3086,7 +3085,7 @@ _INFLIGHT = {}
 
 
 # ============================================================
-#  SWR Ã¢â‚¬â€ STALE-WHILE-REVALIDATE BACKGROUND REFRESH
+#  SWR â€” STALE-WHILE-REVALIDATE BACKGROUND REFRESH
 # ============================================================
 _SWR_INFLIGHT = set()
 _SWR_INFLIGHT_LOCK = threading.Lock()
@@ -3252,7 +3251,7 @@ def load_products(query, allow_block=True, vendor=None):
             return all_products
 
         # === GAP FIX #3 ===
-        # No real products found Ã¢â‚¬â€ serve fallback so the shop is never empty.
+        # No real products found â€” serve fallback so the shop is never empty.
         print(f"[PSC SEARCH] No real products found for '{vendor or 'all'}:{query}'. Serving fallback.")
         fb = _fallback_products(query.title())
         _register_products(fb)
@@ -3403,7 +3402,7 @@ def _midnight_bonus_loop():
 
 
 # ============================================================
-# BLOCK A + C + D  Ã¢â‚¬â€  FLUTTERWAVE TOP-UP, WITHDRAWALS, PAYOUTS
+# BLOCK A + C + D  â€”  FLUTTERWAVE TOP-UP, WITHDRAWALS, PAYOUTS
 # ============================================================
 
 FLW_PUBLIC_KEY     = os.getenv("FLW_PUBLIC_KEY", "")
@@ -4189,7 +4188,7 @@ def api_admin_psc_payout_mark_paid():
 
 
 # ============================================================
-# PAYSTACK GATEWAY Ã¢â‚¬â€ ADDITIVE, OFF BY DEFAULT
+# PAYSTACK GATEWAY â€” ADDITIVE, OFF BY DEFAULT
 # ============================================================
 
 PAYSTACK_ENABLED        = os.getenv("PAYSTACK_ENABLED", "0").strip() == "1"
@@ -4590,7 +4589,7 @@ def api_category_images():
       - On the next call (page auto-refreshes every 2 min), real images
         will already be in the cache.
 
-    The actual scraping still happens Ã¢â‚¬â€ Jumia / Kilimall / Carrefour Ã¢â‚¬â€
+    The actual scraping still happens â€” Jumia / Kilimall / Carrefour â€”
     but on daemon threads, never blocking the user request.
     """
     try:
@@ -4642,7 +4641,7 @@ def api_category_images():
                 }
                 continue
 
-            # -------- SLOW PATH: cold cache Ã¢â€ â€™ schedule bg refresh --------
+            # -------- SLOW PATH: cold cache â†’ schedule bg refresh --------
             # Uses the same SWR function the rest of the app already uses.
             # Spawns a daemon thread; does NOT block this request.
             # Respects the existing _SCRAPE_LOCK, so it cannot collide
@@ -4656,7 +4655,7 @@ def api_category_images():
             except Exception as e:
                 print(f"[CAT-IMG] background refresh schedule failed for {key}: {e}")
 
-            # Return the placeholder immediately Ã¢â‚¬â€ do NOT wait.
+            # Return the placeholder immediately â€” do NOT wait.
             # -- FALLBACK 1: only a product that MATCHES this category --
             if not pick:
                 _kw = [w for w in cat["query"].lower().split() if len(w) >= 3]
@@ -6523,7 +6522,7 @@ def api_place_multi_order():
 
 
 # ============================================================
-# VIRTUAL ACCOUNT (VA) + COMPLIANCE LAYER Ã¢â‚¬â€ FULLY ADDITIVE
+# VIRTUAL ACCOUNT (VA) + COMPLIANCE LAYER â€” FULLY ADDITIVE
 # ============================================================
 
 VA_ENABLED               = os.getenv("VA_ENABLED", "0").strip() == "1"
@@ -7557,7 +7556,7 @@ def api_admin_aml_screen():
 
 
 # ============================================================
-# WALLET UPGRADE LAYER Ã¢â‚¬â€ ADDITIVE
+# WALLET UPGRADE LAYER â€” ADDITIVE
 # ============================================================
 
 WALLET_DEPOSIT_MAX_KES        = float(os.getenv("WALLET_DEPOSIT_MAX_KES", "0") or 0)
@@ -7818,7 +7817,7 @@ def api_wallet_deposit_initiate():
                 "message": "Open the checkout link to complete payment.",
             })
         else:
-            # Flutterwave Ã¢â‚¬â€ inline, using the CURRENT request/session
+            # Flutterwave â€” inline, using the CURRENT request/session
             if not FLW_SECRET_KEY:
                 return jsonify({"success": False, "message": "Flutterwave keys not configured in .env"}), 500
             client = get_client_by_phone(session.get("verified_phone", ""))
@@ -8341,7 +8340,7 @@ def api_admin_wallet_withdraw_confirm():
 
 
 # ============================================================
-# SAVINGS SUB-BALANCE Ã¢â‚¬â€ ADDITIVE
+# SAVINGS SUB-BALANCE â€” ADDITIVE
 # ============================================================
 
 WALLET_SAVINGS_ENABLED       = os.getenv("WALLET_SAVINGS_ENABLED", "1").strip() == "1"
@@ -8565,7 +8564,7 @@ def api_wallet_savings_move_out():
 
 
 # ============================================================
-# ADDITIVE (Option C) Ã¢â‚¬â€ DEPOSIT PSC POCKET (HOLD-ONLY)
+# ADDITIVE (Option C) â€” DEPOSIT PSC POCKET (HOLD-ONLY)
 # ============================================================
 
 WALLET_DEPOSIT_POCKET_ENABLED     = os.getenv("WALLET_DEPOSIT_POCKET_ENABLED", "1").strip() == "1"
@@ -11231,5 +11230,3 @@ if __name__ == "__main__":
         threaded=True,
         use_reloader=False
     )
-
-
