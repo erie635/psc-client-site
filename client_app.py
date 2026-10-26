@@ -1,4 +1,4 @@
-"""
+﻿"""
 PSC - Pulse Shopping Coin
 Client-facing online shop with automatic PSC wallet creation + client registry.
 + Category grouping, login/register, account persistence.
@@ -659,8 +659,8 @@ WALLET_DIR = r"C:\Users\erick\Desktop\PSC_Coin_Complete\wallets"
 ORDERS_FILE = r"C:\Users\erick\Desktop\PSC_Coin_Complete\orders_from_clients.json"
 CLIENTS_FILE = r"C:\Users\erick\Desktop\PSC_Coin_Complete\client_registry.json"
 
-ADMIN_CLIENT_WALLETS_FILE = r"C:\Users\erick\Desktop\PSC_Coin_Complete\client_wallets.json"
-ADMIN_LEDGER_FILE = r"C:\Users\erick\Desktop\PSC_Coin_Complete\client_wallet_ledger.json"
+ADMIN_CLIENT_WALLETS_FILE = os.path.join(DATA_DIR, "client_wallets.json")
+ADMIN_LEDGER_FILE = os.path.join(DATA_DIR, "client_wallet_ledger.json")
 
 PAYMENTS_FILE         = r"C:\Users\erick\Desktop\PSC_Coin_Complete\payments.json"
 WITHDRAWAL_QUEUE_FILE = r"C:\Users\erick\Desktop\PSC_Coin_Complete\withdrawal_queue.json"
@@ -2023,8 +2023,14 @@ def _scrape_jiji(q, headers):
         with sync_playwright() as p:
             browser = p.chromium.launch(
                 headless=True,
-                args=["--disable-blink-features=AutomationControlled",
-                      "--no-sandbox", "--disable-dev-shm-usage", "--disable-gpu"],
+                args=[
+                    '--single-process',           # CRITICAL: Saves massive memory on Render
+                    '--no-sandbox',               # Required for Linux servers
+                    '--disable-setuid-sandbox',
+                    '--disable-dev-shm-usage',    # Prevents shared memory crashes
+                    '--disable-gpu',              # Disables graphics rendering
+                    '--disable-images'            # Speeds up scraping and saves memory
+                ]
             )
             page = browser.new_page(
                 user_agent=headers["User-Agent"],
