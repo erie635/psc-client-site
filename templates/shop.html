@@ -1011,7 +1011,174 @@
   max-width: 260px;
   box-sizing: border-box;
 }
-</style>
+
+/* ============================================================
+   MOBILE RESPONSIVENESS ADDITIONS (Appended)
+   Makes the layout fit perfectly on small screens without 
+   touching any of the logic or existing CSS above.
+   ============================================================ */
+@media (max-width: 768px) {
+    /* Topbar & Company Bar Stacking */
+    .company-bar {
+        flex-direction: column;
+        align-items: flex-start;
+        padding: 10px 15px;
+    }
+    .company-bar .left-info, .company-bar .right-info {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 5px;
+    }
+    .topbar {
+        flex-direction: column;
+        align-items: flex-start;
+        padding: 12px 15px;
+    }
+    .topbar .right-tools {
+        width: 100%;
+        justify-content: space-between;
+        flex-wrap: wrap;
+        gap: 10px;
+    }
+    
+    /* Wallet Chip Wrapping */
+    .wallet-chip {
+        width: 100%;
+        flex-wrap: wrap;
+        justify-content: center;
+        padding: 10px;
+        font-size: 0.8rem;
+        text-align: center;
+    }
+    .wallet-chip button {
+        margin-top: 5px;
+        margin-left: 0 !important;
+    }
+    .three-dot-wrap {
+        margin-left: auto;
+    }
+
+    /* Hero Carousel */
+    .hero-slide {
+        padding: 15px 20px;
+    }
+    .hero-slide .hero-img-box {
+        width: 150px;
+        height: 150px;
+    }
+    .hero-slide .hero-title {
+        font-size: 1.3rem;
+    }
+    .hero-slide .hero-cta {
+        padding: 10px 20px;
+        font-size: 0.9rem;
+    }
+
+    /* Layout */
+    .container {
+        padding: 10px;
+    }
+    .card {
+        padding: 15px;
+    }
+
+    /* Cart Panel */
+    .cart-item {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 5px;
+    }
+    .cart-item .sub {
+        text-align: left;
+        width: 100%;
+        margin-top: 5px;
+    }
+    .cart-footer {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 10px;
+    }
+    .cart-footer button {
+        width: 100%;
+    }
+
+    /* Product Grid (2 columns on mobile) */
+    .products {
+        grid-template-columns: 1fr 1fr;
+        gap: 10px;
+    }
+    .product {
+        padding: 10px;
+    }
+    .product img, .product .ph {
+        height: 120px;
+    }
+    .product h3 {
+        font-size: 0.8rem;
+        -webkit-line-clamp: 2;
+    }
+    .product .price {
+        font-size: 1.1rem;
+    }
+    .product .actions {
+        flex-direction: column;
+    }
+    .product button.add-cart, .product button.buy-now {
+        padding: 8px 5px;
+        font-size: 0.8rem;
+    }
+
+    /* Wallet Forms */
+    #pscPanel {
+        padding: 10px !important;
+    }
+    #pscPanel [data-psc-view="deposit"] > div,
+    #pscPanel [data-psc-view="withdraw"] > div,
+    #pscWdBandFields {
+        flex-direction: column;
+        align-items: stretch !important;
+    }
+    #pscPanel [data-psc-view="deposit"] input,
+    #pscPanel [data-psc-view="deposit"] select,
+    #pscPanel [data-psc-view="withdraw"] input,
+    #pscPanel [data-psc-view="withdraw"] select,
+    #pscWdBandFields input {
+        width: 100% !important;
+        flex: 1 1 auto !important;
+        max-width: 100% !important;
+    }
+    #pscBalanceGrid > div {
+        flex: 0 0 140px !important;
+        min-width: 140px !important;
+    }
+    
+    /* Search Bar */
+    .search-bar {
+        flex-direction: column;
+    }
+    .search-bar input, .search-bar button {
+        width: 100%;
+    }
+}
+
+@media (max-width: 480px) {
+    /* Hide hero image on very small screens to save space */
+    .hero-slide .hero-img-box {
+        display: none; 
+    }
+    .hero-wrap {
+        height: 250px;
+    }
+    .hero-slide .hero-text {
+        max-width: 100%;
+    }
+    .row-section h2 {
+        font-size: 1.1rem;
+    }
+}
+/* ============================================================ */
+
+    </style>
 </head>
 <body>
 
@@ -1190,7 +1357,7 @@
                         <option value="bank">Bank account</option>
                       </select>
                     </div>
-                    <div id="pscWdBandFields" style="display:none;margin-bottom:10px;gap:8px;flex-wrap:wrap;">
+                    <div id="pscWdBandFields" style="display:none;margin-bottom:10px;gap:8px;flex-wrap:wrap">
                       <input id="pscWdBankCode" type="text" placeholder="Bank code (e.g. 044)" style="flex:1 1 180px;padding:11px;border:1px solid #cbd5e1;border-radius:8px;box-sizing:border-box;">
                       <input id="pscWdAccount"  type="text" placeholder="Bank account number"  style="flex:1 1 240px;padding:11px;border:1px solid #cbd5e1;border-radius:8px;box-sizing:border-box;">
                     </div>
