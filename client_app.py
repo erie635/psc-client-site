@@ -444,13 +444,13 @@ def _launch_browser(p):
     kwargs = {
         "channel": "chrome",
         "headless": True,
-        "args": [
+              "args": [
             "--disable-blink-features=AutomationControlled",
             "--no-sandbox",
+            "--disable-setuid-sandbox",
             "--disable-dev-shm-usage",
             "--disable-gpu",
-            "--window-size=1920,1080",
-            "--start-maximized",
+            "--window-size=1280,720",
             "--disable-features=IsolateOrigins,site-per-process",
             "--disable-site-isolation-trials",
             "--disable-background-timer-throttling",
@@ -459,6 +459,9 @@ def _launch_browser(p):
             "--no-first-run",
             "--no-default-browser-check",
             "--lang=en-KE,en-US,en",
+            "--single-process",
+            "--disable-accelerated-2d-canvas",
+            "--disable-software-rasterizer"
         ],
     }
     proxy_cfg = _playwright_proxy_config()
