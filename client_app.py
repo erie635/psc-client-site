@@ -1,4 +1,4 @@
-﻿"""
+"""
 PSC - Pulse Shopping Coin
 Client-facing online shop with automatic PSC wallet creation + client registry.
 + Category grouping, login/register, account persistence.

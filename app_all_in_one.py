@@ -93,6 +93,41 @@ warnings.filterwarnings("ignore", message="line buffering.*binary mode", categor
 
 
 
+
+# === PSC PATCH: PLAYWRIGHT SEMAPHORE (A+B) ===
+_PLAYWRIGHT_SEM = threading.Semaphore(1)
+
+try:
+    import playwright.sync_api as _psc_pw_sync
+    _psc_orig_sync_playwright = _psc_pw_sync.sync_playwright
+
+    class _PscSemPlaywright:
+        def __init__(self, inner):
+            self._inner = inner
+            self._ctx_obj = None
+        def __enter__(self):
+            _PLAYWRIGHT_SEM.acquire()
+            try:
+                self._ctx_obj = self._inner.__enter__()
+                return self._ctx_obj
+            except BaseException:
+                _PLAYWRIGHT_SEM.release()
+                raise
+        def __exit__(self, *exc):
+            try:
+                return self._inner.__exit__(*exc)
+            finally:
+                _PLAYWRIGHT_SEM.release()
+
+    def _psc_sync_playwright(*a, **k):
+        return _PscSemPlaywright(_psc_orig_sync_playwright(*a, **k))
+
+    _psc_pw_sync.sync_playwright = _psc_sync_playwright
+    print("[PSC PATCH] Playwright semaphore installed (max 1 concurrent).")
+except Exception as _psc_pw_err:
+    print("[PSC PATCH] Playwright semaphore not installed: " + str(_psc_pw_err))
+# === END PSC PATCH: PLAYWRIGHT SEMAPHORE ===
+
 # ---------- SIMPLE IN-MEMORY CACHE ----------
 _PRODUCT_CACHE_DB = {}
 _CACHE_LOCK = threading.Lock()
@@ -407,7 +442,6 @@ def _launch_browser(p):
     ADDITIVE: extra stealth flags to reduce bot-detection surface.
     """
     kwargs = {
-        "channel": "chrome",
         "headless": True,
         "args": [
             "--disable-blink-features=AutomationControlled",
@@ -635,7 +669,7 @@ PAYOUT_AUDIT_FILE     = r"C:\Users\erick\Desktop\PSC_Coin_Complete\payout_audit.
 MARKUP_DEFAULT = 0.05
 
 CATEGORY_MARKUPS = {
-        "laptop": 0.15, "laptops": 0.15, "notebook": 0.15, "notebooks": 0.15,
+    "laptop": 0.15, "laptops": 0.15, "notebook": 0.15, "notebooks": 0.15,
         "macbook": 0.15, "macbooks": 0.15, "chromebook": 0.15,
         "ultrabook": 0.15, "desktop": 0.15, "workstation": 0.15,
         "pc": 0.15, "computer": 0.15, "computers": 0.15,
@@ -1611,32 +1645,60 @@ def markup_for(name, category):
 # ---------- CATEGORY GROUPING ----------
 
 CATEGORY_GROUPS = [
-    {"key": "phones", "label": "Phones & Tablets", "query": "smartphone", "emoji": "??"},
-    {"key": "tv", "label": "TVs & Audio", "query": "smart tv", "emoji": "??"},
-    {"key": "appliances", "label": "Appliances", "query": "home appliance", "emoji": "??"},
-    {"key": "health", "label": "Health & Beauty", "query": "beauty products", "emoji": "??"},
-    {"key": "home", "label": "Home & Office", "query": "home kitchen", "emoji": "??"},
-    {"key": "fashion", "label": "Fashion", "query": "fashion", "emoji": "??"},
-    {"key": "computing", "label": "Computing", "query": "laptop", "emoji": "??"},
-    {"key": "gaming", "label": "Gaming", "query": "gaming console", "emoji": "??"},
-    {"key": "groceries", "label": "Groceries", "query": "groceries", "emoji": "??"},
-    {"key": "baby", "label": "Baby Products", "query": "baby products", "emoji": "??"},
-    {"key": "sports", "label": "Sporting Goods", "query": "sports", "emoji": "?"},
-    {"key": "books", "label": "Books", "query": "books", "emoji": "??"},
-    {"key": "food", "label": "Food & Pantry", "query": "food", "emoji": "???"},
-    {"key": "unga", "label": "Unga & Flour", "query": "unga flour", "emoji": "??"},
-    {"key": "sugar", "label": "Sugar & Sweeteners", "query": "sugar", "emoji": "??"},
-    {"key": "rice", "label": "Rice & Grains", "query": "rice", "emoji": "??"},
-    {"key": "cooking_oil", "label": "Cooking Oil", "query": "cooking oil", "emoji": "??"},
-    {"key": "cereals", "label": "Cereals & Breakfast", "query": "cereals", "emoji": "??"},
-    {"key": "snacks", "label": "Snacks & Biscuits", "query": "snacks biscuits", "emoji": "??"},
-    {"key": "beverages", "label": "Beverages & Drinks", "query": "beverages drinks", "emoji": "??"},
-    {"key": "dairy", "label": "Dairy & Eggs", "query": "milk dairy eggs", "emoji": "??"},
-    {"key": "meat", "label": "Meat & Fish", "query": "meat fish", "emoji": "??"},
-    {"key": "vegetables", "label": "Vegetables & Fruits", "query": "vegetables fruits", "emoji": "??"},
-    {"key": "spices", "label": "Spices & Condiments", "query": "spices condiments", "emoji": "??"},
-    {"key": "canned", "label": "Canned & Packaged", "query": "canned food", "emoji": "??"},
+    {"key": "phones", "label": "Phones & Tablets", "query": "smartphone", "emoji": "📱"},
+    {"key": "tv", "label": "TVs & Audio", "query": "smart tv", "emoji": "📺"},
+    {"key": "appliances", "label": "Appliances", "query": "home appliance", "emoji": "🔌"},
+    {"key": "health", "label": "Health & Beauty", "query": "beauty products", "emoji": "💄"},
+    {"key": "home", "label": "Home & Office", "query": "home kitchen", "emoji": "🏠"},
+    {"key": "fashion", "label": "Fashion", "query": "fashion", "emoji": "👕"},
+    {"key": "computing", "label": "Computing", "query": "laptop", "emoji": "💻"},
+    {"key": "gaming", "label": "Gaming", "query": "gaming console", "emoji": "🎮"},
+    {"key": "groceries", "label": "Groceries", "query": "groceries", "emoji": "🛒"},
+    {"key": "baby", "label": "Baby Products", "query": "baby products", "emoji": "🍼"},
+    {"key": "sports", "label": "Sporting Goods", "query": "sports equipment", "emoji": "⚽"},
+    {"key": "books", "label": "Books", "query": "books", "emoji": "📚"},
+    {"key": "food", "label": "Food & Pantry", "query": "food", "emoji": "🍽️"},
+    {"key": "unga", "label": "Unga & Flour", "query": "flour", "emoji": "🌾"},
+    {"key": "sugar", "label": "Sugar & Sweeteners", "query": "sugar", "emoji": "🍬"},
+    {"key": "rice", "label": "Rice & Grains", "query": "rice", "emoji": "🍚"},
+    {"key": "cooking_oil", "label": "Cooking Oil", "query": "cooking oil", "emoji": "🫒"},
+    {"key": "cereals", "label": "Cereals & Breakfast", "query": "cereal", "emoji": "🥣"},
+    {"key": "snacks", "label": "Snacks & Biscuits", "query": "biscuits", "emoji": "🍪"},
+    {"key": "beverages", "label": "Beverages & Drinks", "query": "drinks", "emoji": "🥤"},
+    {"key": "dairy", "label": "Dairy & Eggs", "query": "milk", "emoji": "🥛"},
+    {"key": "meat", "label": "Meat & Fish", "query": "chicken", "emoji": "🥩"},
+    {"key": "vegetables", "label": "Vegetables & Fruits", "query": "vegetables", "emoji": "🥬"},
+    {"key": "spices", "label": "Spices & Condiments", "query": "spices", "emoji": "🧂"},
+    {"key": "canned", "label": "Canned & Packaged", "query": "canned beans", "emoji": "🥫"},
 ]
+
+FALLBACK_CATEGORY_IMAGES = {
+    "phones": "https://images.unsplash.com/photo-1511707171634-5f897ff02aa9?w=400",
+    "tv": "https://images.unsplash.com/photo-1593359677879-a4bb92f829d1?w=400",
+    "appliances": "https://images.unsplash.com/photo-1556909212-d5b604d0c90d?w=400",
+    "health": "https://images.unsplash.com/photo-1596462502278-27bfdc403348?w=400",
+    "home": "https://images.unsplash.com/photo-1556909114-f6e7ad7d3136?w=400",
+    "fashion": "https://images.unsplash.com/photo-1445205170230-053b83016050?w=400",
+    "computing": "https://images.unsplash.com/photo-1517336714731-489689fd1ca8?w=400",
+    "gaming": "https://images.unsplash.com/photo-1493711662062-fa541adb3fc8?w=400",
+    "groceries": "https://images.unsplash.com/photo-1542838132-92c53300491e?w=400",
+    "baby": "https://images.unsplash.com/photo-1519689680058-324335c77eba?w=400",
+    "sports": "https://images.unsplash.com/photo-1461896836934-ffe607ba8211?w=400",
+    "books": "https://images.unsplash.com/photo-1512820790803-83ca734da794?w=400",
+    "food": "https://images.unsplash.com/photo-1504674900247-0877df9cc836?w=400",
+    "unga": "https://images.unsplash.com/photo-1509440159596-0249088772ff?w=400",
+    "sugar": "https://images.unsplash.com/photo-1581441363689-1f3c3c414635?w=400",
+    "rice": "https://images.unsplash.com/photo-1586201375761-83865001e31c?w=400",
+    "cooking_oil": "https://images.unsplash.com/photo-1474979266404-7eaacbcd87c5?w=400",
+    "cereals": "https://images.unsplash.com/photo-1517686469429-8bdb88b9f907?w=400",
+    "snacks": "https://images.unsplash.com/photo-1558961363-fa8fdf82db35?w=400",
+    "beverages": "https://images.unsplash.com/photo-1544145945-f90425340c7e?w=400",
+    "dairy": "https://images.unsplash.com/photo-1550583724-b2692b85b150?w=400",
+    "meat": "https://images.unsplash.com/photo-1607623814075-e51df1bdc82f?w=400",
+    "vegetables": "https://images.unsplash.com/photo-1540420773420-3366772f4999?w=400",
+    "spices": "https://images.unsplash.com/photo-1596040033229-a9821ebd058d?w=400",
+    "canned": "https://images.unsplash.com/photo-1584473457493-17c4c24290c8?w=400",
+}
 
 
 
@@ -1726,7 +1788,7 @@ def _scrape_jumia(q, headers):
         products = []
         with sync_playwright() as p:
             browser = p.chromium.launch(
-                channel="chrome", headless=True,
+                headless=True,
                 args=["--disable-blink-features=AutomationControlled",
                       "--no-sandbox", "--disable-dev-shm-usage", "--disable-gpu"],
             )
@@ -1847,7 +1909,7 @@ def _scrape_carrefour(q):
         products = []
         with sync_playwright() as p:
             browser = p.chromium.launch(
-                channel="chrome", headless=True,
+                headless=True,
                 args=["--disable-blink-features=AutomationControlled",
                       "--no-sandbox", "--disable-dev-shm-usage", "--disable-gpu"],
             )
@@ -1960,7 +2022,7 @@ def _scrape_jiji(q, headers):
         products = []
         with sync_playwright() as p:
             browser = p.chromium.launch(
-                channel="chrome", headless=True,
+                headless=True,
                 args=["--disable-blink-features=AutomationControlled",
                       "--no-sandbox", "--disable-dev-shm-usage", "--disable-gpu"],
             )
@@ -2064,7 +2126,7 @@ def _scrape_woocommerce(q, url_template, source_label, category, headers):
         products = []
         with sync_playwright() as p:
             browser = p.chromium.launch(
-                channel="chrome", headless=True,
+                headless=True,
                 args=["--disable-blink-features=AutomationControlled",
                       "--no-sandbox", "--disable-dev-shm-usage", "--disable-gpu"],
             )
@@ -2156,7 +2218,7 @@ def _scrape_magento(q, url_template, source_label, category, headers):
         products = []
         with sync_playwright() as p:
             browser = p.chromium.launch(
-                channel="chrome", headless=True,
+                headless=True,
                 args=["--disable-blink-features=AutomationControlled",
                       "--no-sandbox", "--disable-dev-shm-usage", "--disable-gpu"],
             )
@@ -2257,7 +2319,7 @@ def _scrape_generic_react(q, url_template, source_label, category, headers):
         products = []
         with sync_playwright() as p:
             browser = p.chromium.launch(
-                channel="chrome", headless=True,
+                headless=True,
                 args=["--disable-blink-features=AutomationControlled",
                       "--no-sandbox", "--disable-dev-shm-usage", "--disable-gpu"],
             )
@@ -2391,21 +2453,21 @@ def _scrape_copell(q, headers):
 
 
 def _scrape_masoko(q, headers):
-    """Safaricom Masoko � official Safaricom store (React site)."""
+    """Safaricom Masoko — official Safaricom store (React site)."""
     return _scrape_generic_react(
         q, "https://masoko.co.ke/search?q={q}",
         "Safaricom Masoko", "Phones & TVs", headers)
 
 
 def _scrape_hotpoint(q, headers):
-    """Hotpoint Appliances � Hisense-authorised, big TV inventory (Magento)."""
+    """Hotpoint Appliances — Hisense-authorised, big TV inventory (Magento)."""
     return _scrape_magento(
         q, "https://hotpoint.co.ke/catalogsearch/result/?q={q}",
         "Hotpoint Appliances", "TVs & Appliances", headers)
 
 
 def _scrape_samsungstore(q, headers):
-    """Samsung Brand Store � official Samsung Kenya store (Magento)."""
+    """Samsung Brand Store — official Samsung Kenya store (Magento)."""
     return _scrape_magento(
         q, "https://samsungbrandstore.co.ke/catalogsearch/result/?q={q}",
         "Samsung Brand Store", "Samsung", headers)
@@ -3445,22 +3507,34 @@ def _audit_add(row):
     _jsave(PAYOUT_AUDIT_FILE, rows)
 
 
-def _wallet_hold_withdrawal(address, amount_psc, withdrawal_id):
+def _wallet_hold_withdrawal(address, amount_psc, withdrawal_id, source="wallet"):
     wallet = get_wallet(address)
     if not wallet:
         return False, "Wallet not found", None
     amt = round(float(amount_psc), 2)
-    available = round(float(wallet.get("wallet_psc", 0) or 0), 2)
+
+    _src = str(source or "wallet").strip().lower()
+    if _src not in ("wallet", "savings", "deposit"):
+        _src = "wallet"
+    _pocket_key   = {"wallet": "wallet_psc",
+                     "savings": "savings_psc",
+                     "deposit": "deposit_psc"}[_src]
+    _pocket_label = {"wallet": "Spendable",
+                     "savings": "Savings",
+                     "deposit": "Deposit"}[_src]
+
+    available = round(float(wallet.get(_pocket_key, 0) or 0), 2)
     if available - amt < 1.00 - 1e-9:
-        return False, (f"Insufficient spendable balance. Available "
+        return False, (f"Insufficient {_pocket_label} balance. Available "
                        f"{available:.2f} PSC. At least 1.00 PSC must remain "
-                       f"in the account."), wallet
-    wallet["wallet_psc"] = round(available - amt, 2)
+                       f"in that pocket."), wallet
+    wallet[_pocket_key] = round(available - amt, 2)
     wallet.setdefault("held_psc", 0.0)
     wallet["held_psc"] = round(float(wallet.get("held_psc", 0) or 0) + amt, 2)
     wallet.setdefault("withdrawals", [])
     wallet["withdrawals"].append({
         "withdrawal_id": withdrawal_id, "amount_psc": amt,
+        "source": _src,
         "status": "PENDING", "created_at": _now(),
     })
     wallet["balance"] = _wallet_total(wallet)
@@ -3481,10 +3555,16 @@ def _wallet_release_or_settle(address, amount_psc, withdrawal_id, outcome):
         return False
     amt = round(float(amount_psc), 2)
     wallet["held_psc"] = round(max(0.0, float(wallet.get("held_psc", 0) or 0) - amt), 2)
-    if outcome == "REJECTED":
-        wallet["wallet_psc"] = round(float(wallet.get("wallet_psc", 0) or 0) + amt, 2)
     for w in wallet.get("withdrawals", []):
         if w.get("withdrawal_id") == withdrawal_id:
+            _src = str(w.get("source") or "wallet").strip().lower()
+            if _src not in ("wallet", "savings", "deposit"):
+                _src = "wallet"
+            if outcome == "REJECTED":
+                _pk = {"wallet": "wallet_psc",
+                       "savings": "savings_psc",
+                       "deposit": "deposit_psc"}[_src]
+                wallet[_pk] = round(float(wallet.get(_pk, 0) or 0) + amt, 2)
             w["status"] = outcome
             w["settled_at"] = _now()
             break
@@ -3514,9 +3594,11 @@ def api_psc_topup_initiate():
         _peek = request.get_json(silent=True) or {}
     except Exception:
         _peek = {}
-    _requested_gw = str(_peek.get("gateway") or _peek.get("provider") or "").strip().lower()
-    if _requested_gw == "paystack":
-        return api_psc_topup_initiate_ps()
+    _requested_gw = str(_peek.get("gateway") or _peek.get("provider") or "paystack").strip().lower()
+    if _requested_gw == "flutterwave":
+        return jsonify({"success": False,
+                        "message": "Flutterwave has been disabled. Please use Paystack or CoinGate."}), 400
+    return api_psc_topup_initiate_ps()
 
     if not FLW_SECRET_KEY:
         return jsonify({"success": False,
@@ -3700,8 +3782,8 @@ def api_psc_topup_verify():
         _peek = request.get_json(silent=True) or {}
     except Exception:
         _peek = {}
-    _requested_gw = str(_peek.get("gateway") or _peek.get("provider") or "").strip().lower()
-    if _requested_gw == "paystack":
+    _requested_gw = str(_peek.get("gateway") or _peek.get("provider") or "paystack").strip().lower()
+    if _requested_gw != "flutterwave":
         return api_psc_topup_verify_ps()
 
     try:
@@ -4534,10 +4616,17 @@ def api_category_images():
                 products = _cache_get_soft(f"products::all::{cat['query'].lower()}") or []
 
             pick = None
+            _kw = [w for w in cat["query"].lower().split() if len(w) >= 3]
             for p in products:
-                if p and p.get("image"):
-                    pick = p
-                    break
+                if not p or not p.get("image"):
+                    continue
+                if _kw:
+                    _hay = (str(p.get("name", "")) + " " +
+                            str(p.get("category", ""))).lower()
+                    if not any(w in _hay for w in _kw):
+                        continue
+                pick = p
+                break
 
             if pick:
                 _CATEGORY_IMAGE_CACHE[key] = {
@@ -4567,11 +4656,53 @@ def api_category_images():
                 print(f"[CAT-IMG] background refresh schedule failed for {key}: {e}")
 
             # Return the placeholder immediately â€” do NOT wait.
-            result[key] = {
-                "image": "",
-                "name":  "",
-                "emoji": cat.get("emoji", ""),
-            }
+            # -- FALLBACK 1: only a product that MATCHES this category --
+            if not pick:
+                _kw = [w for w in cat["query"].lower().split() if len(w) >= 3]
+                for _p in _PRODUCT_CACHE.values():
+                    if not _p or not _p.get("image"):
+                        continue
+                    _hay = (str(_p.get("name", "")) + " " +
+                            str(_p.get("category", ""))).lower()
+                    if _kw and all(w in _hay for w in _kw):
+                        pick = _p
+                        break
+
+            # -- FALLBACK 2: seller items that MATCH the category --
+            if not pick:
+                try:
+                    for _it in _load_seller_items():
+                        if _it.get("status") != "ACTIVE" or not _it.get("image"):
+                            continue
+                        if (str(_it.get("category_query", "")).lower() == cat["query"].lower()
+                                or str(_it.get("category_key", "")).lower() == cat["key"].lower()):
+                            pick = _it
+                            break
+                        _hay2 = (str(_it.get("name", "")) + " " +
+                                 str(_it.get("description", "")) + " " +
+                                 " ".join(str(k) for k in (_it.get("keywords") or []))).lower()
+                        if _kw and any(w in _hay2 for w in _kw):
+                            pick = _it
+                            break
+                except Exception:
+                    pass
+
+            if pick:
+                _img = pick.get("image", "")
+                _nm  = pick.get("name", "")
+                _CATEGORY_IMAGE_CACHE[key] = {"ts": time.time(), "image": _img, "name": _nm}
+                result[key] = {"image": _img, "name": _nm, "emoji": cat.get("emoji", "")}
+                continue
+
+            # -- FALLBACK 3: curated stock image --
+            fallback_img = FALLBACK_CATEGORY_IMAGES.get(key, "")
+            if fallback_img:
+                _CATEGORY_IMAGE_CACHE[key] = {"ts": time.time(), "image": fallback_img, "name": cat["label"]}
+                result[key] = {"image": fallback_img, "name": cat["label"], "emoji": cat.get("emoji", "")}
+                continue
+
+            # -- final resort: emoji only --
+            result[key] = {"image": "", "name": "", "emoji": cat.get("emoji", "")}
 
         return jsonify({"success": True, "images": result,
                         "psc_to_kes_rate": PSC_TO_KES_RATE,
@@ -7589,8 +7720,14 @@ def api_wallet_deposit_initiate():
             channel = "card"
 
         gateway = str(data.get("gateway") or "").strip().lower()
-        if gateway not in ("flutterwave", "paystack"):
-            gateway = "flutterwave" if FLW_SECRET_KEY else ("paystack" if (PAYSTACK_ENABLED and PAYSTACK_SECRET_KEY) else "flutterwave")
+        if gateway in ("flutterwave", "moonpay"):
+            return jsonify({"success": False,
+                            "message": "This gateway has been disabled. Please use Paystack or CoinGate."}), 400
+        if gateway != "paystack":
+            gateway = "paystack"
+        if not (PAYSTACK_ENABLED and PAYSTACK_SECRET_KEY):
+            return jsonify({"success": False,
+                            "message": "Paystack is not configured in .env"}), 503
 
         # ADDITIVE (Option C): target pocket.
         target = _normalize_credit_target(
@@ -7733,7 +7870,9 @@ def api_wallet_deposit_verify():
     try:
         data = request.get_json() or {}
         tx_ref = str(data.get("tx_ref") or "").strip()
-        gateway = str(data.get("gateway") or "flutterwave").strip().lower()
+        gateway = str(data.get("gateway") or "paystack").strip().lower()
+        if gateway == "flutterwave":
+            gateway = "paystack"
                 # === FIX 7: use the current request context; test_request_context
         # wipes the session and breaks authenticated credit. ===
         if gateway == "paystack":
@@ -7808,7 +7947,7 @@ def api_wallet_transfer_lookup():
                 "name": client.get("name", ""),
                 "phone": client.get("phone", ""),
                 "wallet": recipient_wallet,
-                "wallet_short": recipient_wallet[:10] + "â€¦" + recipient_wallet[-6:],
+                "wallet_short": recipient_wallet[:10] + "Ã¢â‚¬Â¦" + recipient_wallet[-6:],
             },
         })
     except Exception as e:
@@ -7992,13 +8131,24 @@ def api_wallet_withdraw_highvalue():
                 return jsonify({"success": False,
                                 "message": "bank_code and destination are required."}), 400
 
-        available = round(float(wallet.get("wallet_psc", 0) or 0), 2)
+        _source = str(data.get("source") or "wallet").strip().lower()
+        if _source not in ("wallet", "savings", "deposit"):
+            _source = "wallet"
+        _pk = {"wallet": "wallet_psc",
+               "savings": "savings_psc",
+               "deposit": "deposit_psc"}[_source]
+        _plabel = {"wallet": "Spendable",
+                   "savings": "Savings",
+                   "deposit": "Deposit"}[_source]
+        available = round(float(wallet.get(_pk, 0) or 0), 2)
         if amount_psc > available - 1.00 + 1e-9:
             return jsonify({
                 "success": False,
-                "message": (f"At least 1.00 PSC must remain. Available {available:.2f} PSC. "
+                "message": (f"At least 1.00 PSC must remain in your {_plabel} pocket. "
+                            f"Available {available:.2f} PSC. "
                             f"Maximum withdrawable {max(0.0, available - 1.00):.2f} PSC."),
                 "wallet_psc": available,
+                "source": _source,
                 "max_withdrawable_psc": round(max(0.0, available - 1.00), 2),
             }), 400
 
@@ -8026,7 +8176,7 @@ def api_wallet_withdraw_highvalue():
             }), gate.get("status", 403)
 
         withdrawal_id = "WRV-" + uuid.uuid4().hex[:12]
-        ok, msg, _w = _wallet_hold_withdrawal(wallet_addr, amount_psc, withdrawal_id)
+        ok, msg, _w = _wallet_hold_withdrawal(wallet_addr, amount_psc, withdrawal_id, source=_source)
         if not ok:
             return jsonify({"success": False, "message": msg}), 400
 
@@ -8038,6 +8188,7 @@ def api_wallet_withdraw_highvalue():
             "method": method,
             "destination": destination,
             "bank_code": bank_code,
+            "source": _source,
             "status": "PENDING_ADMIN",
             "created_at": _now(),
         })
@@ -8049,6 +8200,7 @@ def api_wallet_withdraw_highvalue():
             "amount_kes": amount_kes,
             "method": method,
             "destination": destination,
+            "source": _source,
             "status": "PENDING_ADMIN",
             "created_at": _now(),
         })
@@ -8062,6 +8214,7 @@ def api_wallet_withdraw_highvalue():
             "amount_kes": amount_kes,
             "method": method,
             "destination": destination,
+            "source": _source,
             "status": "PENDING_ADMIN",
             "time": _now(),
         })
@@ -8073,6 +8226,7 @@ def api_wallet_withdraw_highvalue():
             "amount_psc": amount_psc,
             "amount_kes": amount_kes,
             "method": method,
+            "source": _source,
             "daily_max_kes": WALLET_WITHDRAW_DAILY_MAX_KES,
             "used_today_kes": used_today + amount_kes,
             "message": (f"Withdrawal {withdrawal_id} created for KES {amount_kes:.2f}. "
@@ -8719,7 +8873,7 @@ def api_wallet_ui(wallet_addr):
         {
             "key": "deposit",
             "label": "Add Money",
-            "icon": "âž•",
+            "icon": "Ã¢Å¾â€¢",
             "endpoint": "/api/wallet/deposit/initiate",
             "method": "POST",
             "fields": ["amount_kes", "channel", "gateway", "target"],
@@ -8738,7 +8892,7 @@ def api_wallet_ui(wallet_addr):
         {
             "key": "transfer",
             "label": "Send to another user",
-            "icon": "ðŸ“¤",
+            "icon": "Ã°Å¸â€œÂ¤",
             "endpoint": "/api/wallet/transfer",
             "method": "POST",
             "fields": ["recipient", "amount_psc"],
@@ -8750,7 +8904,7 @@ def api_wallet_ui(wallet_addr):
         {
             "key": "withdraw",
             "label": "Withdraw to bank / M-Pesa",
-            "icon": "ðŸ“¥",
+            "icon": "Ã°Å¸â€œÂ¥",
             "endpoint": "/api/wallet/withdraw/highvalue",
             "method": "POST",
             "fields": ["amount_psc", "method", "destination", "bank_code"],
@@ -8760,7 +8914,7 @@ def api_wallet_ui(wallet_addr):
         {
             "key": "save",
             "label": "Move to Savings",
-            "icon": "ðŸ”’",
+            "icon": "Ã°Å¸â€â€™",
             "endpoint": "/api/wallet/savings/move_in",
             "method": "POST",
             "fields": ["amount_psc"],
@@ -8772,7 +8926,7 @@ def api_wallet_ui(wallet_addr):
         {
             "key": "unsave",
             "label": "Move back from Savings",
-            "icon": "ðŸ”“",
+            "icon": "Ã°Å¸â€â€œ",
             "endpoint": "/api/wallet/savings/move_out",
             "method": "POST",
             "fields": ["amount_psc"],
@@ -8783,7 +8937,7 @@ def api_wallet_ui(wallet_addr):
         {
             "key": "deposit_psc_in",
             "label": "Move to Deposit PSC",
-            "icon": "ðŸ§Š",
+            "icon": "Ã°Å¸Â§Å ",
             "endpoint": "/api/wallet/deposit/move_in",
             "method": "POST",
             "fields": ["amount_psc"],
@@ -8795,7 +8949,7 @@ def api_wallet_ui(wallet_addr):
         {
             "key": "deposit_psc_out",
             "label": "Move back from Deposit PSC",
-            "icon": "ðŸ§Š",
+            "icon": "Ã°Å¸Â§Å ",
             "endpoint": "/api/wallet/deposit/move_out",
             "method": "POST",
             "fields": ["amount_psc"],
@@ -8806,7 +8960,7 @@ def api_wallet_ui(wallet_addr):
         {
             "key": "redeem_daily_bonus",
             "label": "Redeem daily bonus",
-            "icon": "ðŸŽ",
+            "icon": "Ã°Å¸Å½Â",
             "endpoint": "/api/wallet/redeem_daily_bonus",
             "method": "POST",
             "fields": [],
@@ -8929,9 +9083,14 @@ def api_payment_link_create():
 
         target = _normalize_credit_target(data.get("target") or "spendable")
 
-        gateway = str(data.get("gateway") or "flutterwave").strip().lower()
-        if gateway not in ("flutterwave", "paystack"):
-            gateway = "flutterwave"
+        _rc = str(data.get("receive_currency") or "").strip().upper()
+        if _rc and _rc not in COINGATE_ALLOWED_CURRENCIES:
+            _rc = ""
+        receive_currency = _rc
+
+        gateway = str(data.get("gateway") or "paystack").strip().lower()
+        if gateway not in ("paystack", "coingate"):
+            gateway = "paystack"
 
         try:
             ttl_hours = int(data.get("ttl_hours") or PAYMENT_LINK_DEFAULT_TTL_HOURS)
@@ -8955,6 +9114,8 @@ def api_payment_link_create():
             "amount_kes": amount_kes,
             "target": target,
             "gateway": gateway,
+            "receive_currency": receive_currency,
+            "receive_currency": receive_currency,
             "note": str(data.get("note") or "").strip()[:120],
             "status": "ACTIVE",
             "created_at": now.strftime("%Y-%m-%d %H:%M:%S"),
@@ -9052,6 +9213,21 @@ def api_payment_link_verify_client():
     try:
         data = request.get_json() or {}
         tx_ref = str(data.get("tx_ref") or "").strip()
+        order_id = str(data.get("order_id") or "").strip()
+
+        # CoinGate branch
+        if order_id or tx_ref.startswith("PSC-LNK-CG-") or tx_ref.startswith("PSC-CG-"):
+            _cid = order_id or tx_ref
+            ok, msg, row = _cg_verify_and_credit(_cid)
+            return jsonify({"success": ok, "message": msg,
+                            "payment": row, "gateway": "coingate"}), (200 if ok else 400)
+
+        # Paystack branch
+        if tx_ref.startswith("PSC-LNK-PS-") or tx_ref.startswith("PSC-PS-"):
+            ok, msg, row = _ps_verify_and_credit(tx_ref, tx_ref)
+            return jsonify({"success": ok, "message": msg,
+                            "payment": row, "gateway": "paystack"}), (200 if ok else 400)
+
         if not tx_ref:
             return jsonify({"success": False, "message": "tx_ref required"}), 400
         row = _payment_find(tx_ref)
@@ -9292,6 +9468,72 @@ def api_payment_link_initiate(token):
                 "target": target,
             })
 
+        if gateway == "coingate":
+            if not COINGATE_ENABLED or not COINGATE_API_TOKEN:
+                return jsonify({"success": False,
+                                "message": "CoinGate not enabled/configured."}), 500
+            order_id = "PSC-LNK-CG-" + uuid.uuid4().hex[:16]
+            try:
+                settle_amount, _rate_used = _cg_kes_to_settle(amount_kes)
+            except Exception:
+                settle_amount, _rate_used = amount_kes, 1.0
+            receive_currency = str(row.get("receive_currency") or COINGATE_DEFAULT_RECEIVE).strip().upper()
+            if receive_currency not in COINGATE_ALLOWED_CURRENCIES:
+                receive_currency = str(row.get("receive_currency") or COINGATE_DEFAULT_RECEIVE).strip().upper()
+            if receive_currency not in COINGATE_ALLOWED_CURRENCIES:
+                receive_currency = COINGATE_DEFAULT_RECEIVE
+            _cg_payment_add({
+                "order_id": order_id,
+                "wallet_address": wallet_addr,
+                "amount_kes": amount_kes,
+                "settle_amount": settle_amount,
+                "settle_currency": COINGATE_SETTLE_CUR,
+                "receive_currency": receive_currency,
+                "expected_psc": expected_psc,
+                "status": "PENDING",
+                "provider": "coingate",
+                "cg_order_id": None,
+                "created_at": _now(),
+                "verified_at": None,
+                "credited_psc": 0.0,
+                "target": target,
+                "via_link": token,
+                "payer_name": payer_name,
+                "payer_email": payer_email,
+                "payer_phone": payer_phone,
+            })
+            base = request.url_root.rstrip("/")
+            success_url = base + "/pay/" + token + "?order_id=" + order_id
+            payload = {
+                "order_id": order_id,
+                "price_amount": settle_amount,
+                "price_currency": COINGATE_SETTLE_CUR,
+                "receive_currency": receive_currency,
+                "title": "PSC Payment Link",
+                "description": "Pay %.2f PSC (KES %.2f)" % (expected_psc, amount_kes),
+                "callback_url": base + "/webhooks/coingate",
+                "cancel_url": success_url,
+                "success_url": success_url,
+            }
+            r = _http.post(f"{COINGATE_BASE_URL}/orders", json=payload,
+                           headers=_cg_headers(), timeout=20)
+            resp = r.json() if r.content else {}
+            if r.status_code >= 300 or not resp.get("id"):
+                _cg_payment_update(order_id, status="FAILED",
+                                   error=str(resp.get("message") or r.text)[:300])
+                return jsonify({"success": False,
+                                "message": resp.get("message") or "CoinGate error"}), 502
+            _cg_payment_update(order_id, cg_order_id=resp.get("id"))
+            return jsonify({
+                "success": True,
+                "order_id": order_id,
+                "gateway": "coingate",
+                "checkout_url": resp.get("payment_url"),
+                "amount_kes": amount_kes,
+                "expected_psc": expected_psc,
+                "target": target,
+            })
+
         return jsonify({"success": False, "message": "Unknown gateway."}), 400
     except Exception as e:
         return jsonify({"success": False, "message": str(e)}), 500
@@ -9326,6 +9568,19 @@ def _payment_link_recompute(token):
                 collected_psc += float(p.get("credited_psc") or 0)
                 collected_kes += float(p.get("amount_kes") or 0)
                 tx_refs.append(p.get("tx_ref"))
+    except Exception:
+        pass
+
+    try:
+        for p in _cg_payments_all():
+            if p.get("via_link") != token:
+                continue
+            if p.get("wallet_address") != wallet_addr:
+                continue
+            if p.get("status") == "COMPLETED":
+                collected_psc += float(p.get("credited_psc") or 0)
+                collected_kes += float(p.get("amount_kes") or 0)
+                tx_refs.append(p.get("order_id"))
     except Exception:
         pass
 
@@ -9474,16 +9729,20 @@ PAY_LINK_TEMPLATE = r"""<!DOCTYPE html>
   var TOKEN = {{ token|tojson }};
   var GATEWAY = {{ gateway|tojson }};
 
-  // === ADDITIVE: auto-verify on return from Flutterwave ===
+  // === ADDITIVE: auto-verify on return from Paystack / CoinGate / Flutterwave ===
   try {
     var _qs = new URLSearchParams(window.location.search);
-    var _txr = _qs.get('tx_ref');
-    if (_txr) {
+    var _txr = _qs.get('tx_ref') || _qs.get('trxref') || _qs.get('reference') || '';
+    var _orderId = _qs.get('order_id') || _qs.get('cg_order_id') || '';
+    if (_txr || _orderId) {
       var _box = document.getElementById('msg');
       if (_box) { _box.className = 'msg ok'; _box.textContent = 'Verifying your payment...'; }
+      var _body = { token: TOKEN };
+      if (_txr) _body.tx_ref = _txr;
+      if (_orderId) _body.order_id = _orderId;
       fetch('/api/payment_link/verify', {
         method: 'POST', headers: {'Content-Type':'application/json'},
-        body: JSON.stringify({ token: TOKEN, tx_ref: _txr })
+        body: JSON.stringify(_body)
       })
       .then(function(r){ return r.json(); })
       .then(function(d){
@@ -9561,8 +9820,16 @@ PAY_LINK_TEMPLATE = r"""<!DOCTYPE html>
 # Supports BTC, ETH, USDT-TRC20.
 # ============================================================
 
+def _cg_clean_token(raw):
+    """Strip whitespace and one layer of surrounding quotes so a
+    quoted COINGATE_API_TOKEN in .env does not cause BadAuthToken."""
+    t = str(raw or "").strip()
+    if len(t) >= 2 and t[0] == t[-1] and t[0] in ('"', "'"):
+        t = t[1:-1].strip()
+    return t
+
 COINGATE_ENABLED     = os.getenv("COINGATE_ENABLED", "0").strip() == "1"
-COINGATE_API_TOKEN   = os.getenv("COINGATE_API_TOKEN", "")
+COINGATE_API_TOKEN   = _cg_clean_token(os.getenv("COINGATE_API_TOKEN", ""))
 COINGATE_MODE        = os.getenv("COINGATE_MODE", "sandbox").strip().lower()
 COINGATE_BASE_URL    = ("https://api-sandbox.coingate.com/v2"
                         if COINGATE_MODE == "sandbox"
@@ -9577,6 +9844,11 @@ COINGATE_SETTLE_CUR      = os.getenv("COINGATE_SETTLE_CUR",  "EUR").strip().uppe
 COINGATE_KES_PER_USD     = float(os.getenv("COINGATE_KES_PER_USD", "0") or 0)
 COINGATE_MIN_KES         = float(os.getenv("COINGATE_MIN_KES", "100") or 100)
 COINGATE_MAX_KES         = float(os.getenv("COINGATE_MAX_KES", "0") or 0)
+
+_CG_ALLOWED_SETTLE = {"USD", "EUR", "GBP", "USDT", "USDC", "BTC", "ETH"}
+if COINGATE_SETTLE_CUR not in _CG_ALLOWED_SETTLE:
+    print("[COINGATE] settle currency " + repr(COINGATE_SETTLE_CUR) + " not supported by CoinGate; using USD.")
+    COINGATE_SETTLE_CUR = "USD"
 
 COINGATE_PAYMENTS_FILE = os.path.join(
     os.path.dirname(PAYMENTS_FILE) or ".",
@@ -9634,10 +9906,11 @@ def _cg_normalize_receive_currency(raw):
 
 
 def _cg_kes_to_settle(amount_kes):
-    if COINGATE_KES_PER_USD > 0 and COINGATE_SETTLE_CUR in ("USD", "USDT", "USDC", "EUR"):
-        amt = round(amount_kes / COINGATE_KES_PER_USD, 2)
-        return amt, COINGATE_KES_PER_USD
-    return round(amount_kes, 2), 1.0
+    """Convert KES to COINGATE_SETTLE_CUR. CoinGate does not accept
+    KES as a price_currency, so when COINGATE_KES_PER_USD is unset
+    we fall back to a safe default instead of sending KES."""
+    rate = COINGATE_KES_PER_USD if COINGATE_KES_PER_USD > 0 else 129.0
+    return round(amount_kes / rate, 2), rate
 
 
 @app.route("/api/psc/topup/initiate_cg", methods=["POST"])
@@ -9721,6 +9994,13 @@ def api_psc_topup_initiate_cg():
         redirect_url = (str(data.get("redirect_url") or "").strip()
                         or request.url_root.rstrip("/") + "/psc_topup_return")
 
+        # ADDITIVE: append order_id so the return page can verify CoinGate
+        try:
+            _sep = "&" if "?" in redirect_url else "?"
+            redirect_url = redirect_url + _sep + "order_id=" + order_id
+        except Exception:
+            pass
+
         payload = {
             "order_id":          order_id,
             "price_amount":      settle_amount,
@@ -9731,7 +10011,6 @@ def api_psc_topup_initiate_cg():
             "callback_url":      request.url_root.rstrip("/") + "/webhooks/coingate",
             "cancel_url":        redirect_url,
             "success_url":       redirect_url,
-            "token":             receive_currency,
         }
 
         r = _http.post(f"{COINGATE_BASE_URL}/orders",
@@ -9739,6 +10018,14 @@ def api_psc_topup_initiate_cg():
         resp = r.json() if r.content else {}
 
         print(f"[COINGATE] status={r.status_code} resp={str(resp)[:400]}")
+
+        if r.status_code == 401:
+            _hint = ("CoinGate rejected the API token. Check .env: "
+                     "1) no quotes around COINGATE_API_TOKEN; "
+                     "2) COINGATE_MODE matches the token's environment; "
+                     "3) token is still active on the CoinGate dashboard.")
+            _cg_payment_update(order_id, status="FAILED", error=_hint)
+            return jsonify({"success": False, "message": _hint}), 502
 
         if r.status_code >= 300 or not resp.get("id"):
             _cg_payment_update(order_id, status="FAILED", error=str(resp)[:300])
@@ -9785,6 +10072,14 @@ def _cg_verify_and_credit(order_id, cg_order_id=None):
         r = _http.get(f"{COINGATE_BASE_URL}/orders/{cg_id}",
                       headers=_cg_headers(), timeout=20)
         resp = r.json() if r.content else {}
+        if r.status_code == 401:
+            _hint = ("CoinGate rejected the API token. Check .env: "
+                     "1) no quotes around COINGATE_API_TOKEN; "
+                     "2) COINGATE_MODE matches the token's environment; "
+                     "3) token is still active on the CoinGate dashboard.")
+            _cg_payment_update(order_id, status="FAILED", error=_hint)
+            return jsonify({"success": False, "message": _hint}), 502
+
         if r.status_code >= 300 or not resp.get("id"):
             return False, resp.get("message") or "Verify failed", row
 
@@ -10282,12 +10577,13 @@ def _warm_cache():
     time.sleep(60)
     while True:
         try:
-            print(f"[PSC] Warming cache (priority keywords first)...")
+            print(f"[PSC] Warming cache (all categories)...")
 
-            PRIORITY_KEYWORDS = [
-                "smartphone", "smart tv", "home appliance", "beauty products",
-                "laptop", "fashion", "home kitchen", "gaming console",
-            ]
+            _PRIO_KEYS = {"phones","tv","appliances","health",
+                          "home","fashion","computing","gaming"}
+            _prio = [c["query"] for c in CATEGORY_GROUPS if c["key"] in _PRIO_KEYS]
+            _rest = [c["query"] for c in CATEGORY_GROUPS if c["key"] not in _PRIO_KEYS]
+            PRIORITY_KEYWORDS = _prio + _rest
 
             for kw in PRIORITY_KEYWORDS:
                 # Pause while users are active so their requests get
@@ -10803,7 +11099,7 @@ if _SOCKETIO_AVAILABLE:
         if _psc_in_socketio_run:
             # We are being called from inside socketio.run() itself.
             # Hand off to the real Werkzeug server. Werkzeug's run_simple()
-            # does not understand allow_unsafe_werkzeug � it's a
+            # does not understand allow_unsafe_werkzeug — it's a
             # flask-socketio-only kwarg. Strip it before forwarding.
             kwargs.pop("allow_unsafe_werkzeug", None)
             return _original_app_run(*args, **kwargs)
@@ -10824,6 +11120,74 @@ if _SOCKETIO_AVAILABLE:
 
 
 # ---------- START APPLICATION ----------
+
+# === PSC PATCH: VENDOR TRIM (C) ===
+def _scrape_vendors_sequential(query, vendor=None):
+    q = str(query or "electronics").strip() or "electronics"
+    vendor = str(vendor or "").strip().lower() or None
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.9",
+    }
+
+    if vendor in (None, "jumia"):
+        p = _scrape_jumia(q, headers)
+        if p: return p
+    if vendor in (None, "kilimall"):
+        p = _scrape_kilimall(q, headers)
+        if p: return p
+    if vendor in (None, "carrefour"):
+        p = _scrape_carrefour(q)
+        if p: return p
+
+    if vendor == "jiji":
+        p = _scrape_jiji(q, headers)
+        if p: return p
+    if vendor == "fahavi":
+        p = _scrape_fahavi(q, headers)
+        if p: return p
+    if vendor == "textbookcentre":
+        p = _scrape_textbookcentre(q, headers)
+        if p: return p
+    if vendor == "naivas":
+        p = _scrape_naivas(q, headers)
+        if p: return p
+    if vendor == "vivo":
+        p = _scrape_vivo(q, headers)
+        if p: return p
+    if vendor == "copell":
+        p = _scrape_copell(q, headers)
+        if p: return p
+    if vendor == "masoko":
+        p = _scrape_masoko(q, headers)
+        if p: return p
+    if vendor == "hotpoint":
+        p = _scrape_hotpoint(q, headers)
+        if p: return p
+    if vendor == "samsungstore":
+        p = _scrape_samsungstore(q, headers)
+        if p: return p
+
+    try:
+        with open("products.json", "r") as f:
+            _fb = json.load(f)
+        _fbp = (_fb or {}).get("products", []) or []
+        if _fbp:
+            return _fbp
+    except Exception:
+        pass
+    return [
+        {"id": 1, "name": "Shopping Cart", "price": 10.0,
+         "category": "Essentials", "description": "Durable shopping cart"},
+        {"id": 2, "name": "Designer Bag", "price": 25.0,
+         "category": "Fashion", "description": "Eco-friendly designer bag"},
+    ]
+
+_SCRAPE_COOLDOWN_SECONDS = 60
+print("[PSC PATCH] Vendor trim + 60s scrape cooldown applied.")
+# === END PSC PATCH: VENDOR TRIM ===
+
 
 if __name__ == "__main__":
     print("=" * 60)
@@ -10866,5 +11230,3 @@ if __name__ == "__main__":
         threaded=True,
         use_reloader=False
     )
-
-
