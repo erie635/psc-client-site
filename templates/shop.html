@@ -1019,7 +1019,7 @@
     <div class="company-bar">
         <div class="left-info">
             <span><b>PSC - Pulse Shopping Coin</b></span>
-            <span>Call/WhatsApp: <b>07962058133</b></span>
+            <span>Call/WhatsApp: <a href="https://wa.me/254796208133" target="_blank" rel="noopener" style="color:inherit;text-decoration:none;font-weight:bold;">0796208133</a></span>
             <span>1 PSC = KSh 100</span>
         </div>
         <div class="right-info">
@@ -1177,9 +1177,14 @@
                   <!-- Withdraw panel -->
                   <div data-psc-view="withdraw" style="display:none;">
                     <h3 style="margin:0 0 6px;color:#1a1a2e;">Withdraw Money</h3>
-                    <p style="color:#666;font-size:0.9rem;margin:0 0 12px;">Move funds out to M-Pesa or a bank account. Admin confirms before money leaves. Daily cap shown below.</p>
+                    <p style="color:#666;font-size:0.9rem;margin:0 0 12px;">Move funds out to M-Pesa or a bank account. Choose which pocket (Spendable / Savings / Deposit) to withdraw from. Admin confirms before money leaves. Daily cap shown below.</p>
                     <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:10px;">
                       <input id="pscWdPsc" type="number" min="1" step="0.01" placeholder="Amount in PSC" style="flex:1 1 170px;padding:11px;border:1px solid #cbd5e1;border-radius:8px;box-sizing:border-box;">
+                      <select id="pscWdFrom" title="Which wallet pocket to withdraw from" style="flex:0 0 200px;padding:11px;border:1px solid #cbd5e1;border-radius:8px;box-sizing:border-box;background:#F0F8FF;">
+                        <option value="wallet">Spendable PSC</option>
+                        <option value="savings">Savings PSC</option>
+                        <option value="deposit">Deposit PSC</option>
+                      </select>
                       <select id="pscWdMethod" style="flex:1 1 170px;padding:11px;border:1px solid #cbd5e1;border-radius:8px;box-sizing:border-box;">
                         <option value="mpesa">M-Pesa (my number)</option>
                         <option value="bank">Bank account</option>
@@ -1214,6 +1219,15 @@
                         <option value="spendable">Spendable PSC</option>
                         <option value="savings">Savings PSC</option>
                         <option value="deposit">Deposit PSC</option>
+                      </select>
+                      <select id="pscLinkGateway" title="Payment gateway for this link" style="flex:0 0 210px;padding:11px;border:1px solid #cbd5e1;border-radius:8px;box-sizing:border-box;">
+                        <option value="paystack">Paystack (Card / M-Pesa / Bank)</option>
+                        <option value="coingate">CoinGate (Crypto)</option>
+                      </select>
+                      <select id="pscLinkCrypto" title="Crypto currency for CoinGate links" style="display:none;flex:0 0 170px;padding:11px;border:1px solid #cbd5e1;border-radius:8px;box-sizing:border-box;background:#F0F8FF;">
+                        <option value="USDT">USDT (TRC20)</option>
+                        <option value="BTC">Bitcoin</option>
+                        <option value="ETH">Ethereum</option>
                       </select>
                     </div>
                     <div style="display:flex;gap:10px;flex-wrap:wrap;">
@@ -1968,7 +1982,7 @@ function loadWalletChip() {
                             'Your balance: ' + bal.toFixed(2) + ' PSC\n' +
                             'Cart total: ' + total.toFixed(2) + ' PSC\n\n' +
                             'Please call our management for more PSC tokens:\n' +
-                            '07962058133'
+                            '0796208133'
                         );
                         return;
                     }
@@ -2858,7 +2872,8 @@ function loadWalletChip() {
           if (!amount || amount < 1) { setStatus("pscWdStatus", "Minimum withdrawal is 1 PSC.", true); return; }
           if (method === "bank" && (!bankCode || !account)) { setStatus("pscWdStatus", "Bank code and account number are required.", true); return; }
           setStatus("pscWdStatus", "Submitting request…", false);
-          var payload = { wallet: wallet, amount_psc: amount, method: method };
+          var source = (el("pscWdFrom")||{}).value || "wallet";
+          var payload = { wallet: wallet, amount_psc: amount, method: method, source: source };
           if (method === "bank") { payload.bank_code = bankCode; payload.destination = account; }
           fetch("/api/wallet/withdraw/highvalue", {
             method: "POST", credentials: "same-origin",
@@ -3050,6 +3065,34 @@ function loadWalletChip() {
   if(tabSentEl) tabSentEl.addEventListener("click", function(e){ e.preventDefault(); toggleTab("sent"); });
   if(tabPaidEl) tabPaidEl.addEventListener("click", function(e){ e.preventDefault(); toggleTab("paid"); });
 
+  // ==== GATEWAY -> CRYPTO TOGGLE ====
+  (function(){
+    var _gwSel = document.getElementById("pscLinkGateway");
+    var _crSel = document.getElementById("pscLinkCrypto");
+    function _toggleCrypto(){
+      if(!_crSel || !_gwSel) return;
+      _crSel.style.display = (_gwSel.value === "coingate") ? "inline-block" : "none";
+    }
+    if(_gwSel){
+      _gwSel.addEventListener("change", _toggleCrypto);
+      _toggleCrypto();
+    }
+  })();
+
+  // ==== GATEWAY -> CRYPTO TOGGLE ====
+  (function(){
+    var _gwSel = document.getElementById("pscLinkGateway");
+    var _crSel = document.getElementById("pscLinkCrypto");
+    function _toggleCrypto(){
+      if(!_crSel || !_gwSel) return;
+      _crSel.style.display = (_gwSel.value === "coingate") ? "inline-block" : "none";
+    }
+    if(_gwSel){
+      _gwSel.addEventListener("change", _toggleCrypto);
+      _toggleCrypto();
+    }
+  })();
+
   if(trigger){
     trigger.addEventListener("click", function(e){
       e.preventDefault();
@@ -3074,12 +3117,16 @@ function loadWalletChip() {
       var amt = parseFloat((document.getElementById("pscLinkAmount").value || "0")) || 0;
       var note = (document.getElementById("pscLinkNote").value || "").trim();
       var target = document.getElementById("pscLinkTarget").value || "spendable";
+      var _gwEl = document.getElementById("pscLinkGateway");
+      var _crEl = document.getElementById("pscLinkCrypto");
+      var gateway = _gwEl ? _gwEl.value : "paystack";
+      var receive_currency = (gateway === "coingate" && _crEl) ? _crEl.value : "";
       setStatus("Creating link...", false);
       resultEl.innerHTML = "";
       fetch("/api/payment_link/create", {
         method: "POST", credentials: "same-origin",
         headers: {"Content-Type":"application/json"},
-        body: JSON.stringify({ amount_kes: amt, note: note, target: target })
+        body: JSON.stringify({ amount_kes: amt, note: note, target: target, gateway: gateway, receive_currency: receive_currency })
       })
       .then(function(r){ return r.json(); })
       .then(function(d){
