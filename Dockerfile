@@ -1,15 +1,14 @@
-FROM python:3.14.7 AS builder
+﻿FROM mcr.microsoft.com/playwright/python:v1.62.0-jammy
+
+WORKDIR /app
 
 ENV PYTHONUNBUFFERED=1 \
-    PYTHONDONTWRITEBYTECODE=1
-WORKDIR /app
+    PYTHONDONTWRITEBYTECODE=1 \
+    PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
 
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
 
-RUN python -m venv .venv
-COPY requirements.txt ./
-RUN .venv/bin/pip install -r requirements.txt
-FROM python:3.14.7-slim
-WORKDIR /app
-COPY --from=builder /app/.venv .venv/
 COPY . .
-CMD ["/app/.venv/bin/flask", "run", "--host=0.0.0.0", "--port=8080"]
+
+CMD gunicorn client_app:app --bind 0.0.0.0:$PORT --workers 1 --threads 4 --timeout 120
