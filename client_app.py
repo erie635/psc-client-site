@@ -4,61 +4,35 @@ Client-facing online shop with automatic PSC wallet creation + client registry.
 + Category grouping, login/register, account persistence.
 + Animated hero carousel.
 + In-memory caching for fast loads (10-min TTL).
-+ Product sources: Jumia, Kilimall, Carrefour.
++ Product sources: Jumia, Kilimall, Carrefour, Jiji, Fahavi, Text Book Centre,
+  Naivas, Vivo, Copell, Masoko, Hotpoint, Samsung Brand Store.
 + Bonus PSC is used only as discount. Purchased PSC is used only as payment.
 + Daily bonus (1 PSC) is granted at 00:00 server time via background thread.
 + Purchase requests are forwarded to the admin's client_wallet_ledger.json.
 + Daily VISIT bonus: 1 PSC granted to the redeemable bucket on the first
   visit of the day (no login required), via _grant_daily_visit_bonus().
-+ Virtual Accounts (VA): KYC, VA issuance, VA webhook, credit reconciliation,
-  idempotency, reversals, bank list, account-name resolution, VA inflow limits,
-  AML/PEP/sanctions screening, CBK/KRA reporting, payout velocity checks.
-+ Multi-gateway PSC top-up: Flutterwave (existing) + Paystack (additive).
-  Front-end can choose gateway per request. Default gateway = flutterwave.
-  Nothing about Flutterwave's existing behaviour changes.
-+ Wallet upgrades (additive): unlimited deposits (bank/card/M-Pesa), P2P
-  PSC transfers between users, high-value withdrawals up to KES 100,000/day
-  per user with admin confirm flow. All logic additive; nothing above
-  was modified.
-+ Savings sub-balance (additive): users can park PSC in a dedicated savings
-  bucket that is never touched by shopping, then move it back on demand.
-  Includes a full UI manifest endpoint so the front-end can render
-  Deposit / Send / Withdraw / Save / Move back actions uniformly.
-+ THREE-BUCKET WALLET (Option C, additive): adds a hold-only deposit_psc
-  pocket in addition to wallet_psc (spendable) and savings_psc (parked).
-  Deposits can be routed to spendable / savings / deposit via a `target`
-  field on /api/wallet/deposit/initiate. The shop only reads wallet_psc,
-  so deposit_psc is never spent by shopping. New endpoints:
-    /api/wallet/deposit/move_in   (spendable -> deposit_psc)
-    /api/wallet/deposit/move_out  (deposit_psc -> spendable)
-  Everything above is unchanged; deposit_psc is purely additive.
++ KYC submission + status (used by payout compliance gate).
++ THREE-BUCKET WALLET (Option C): wallet_psc (spendable), savings_psc (parked),
+  deposit_psc (hold-only). Shop only reads wallet_psc.
++ Withdrawals: user requests are held and MUST be confirmed by the admin
+  (manual payout, no automated transfers).
++ P2P PSC transfers between users.
++ Savings sub-balance with full UI manifest endpoint.
++ Deposit PSC pocket with move_in / move_out endpoints.
++ Blockchain mining endpoints + real-time WebSocket push.
++ AML/PEP/sanctions screening, CBK/KRA reporting, payout velocity checks.
 
-PRODUCTION-READY GAP FIXES (applied, minimal, additive):
-+ GAP #1: MIN_BALANCE_TO_SHOP is now actually enforced at checkout.
-+ GAP #2: CACHE_TTL_SECONDS now matches the documented 10-min TTL.
-+ GAP #3: _fallback_products() is now used when live scraping yields nothing,
-         so the shop never shows an empty grid.
-
-ADDITIONAL BUG FIXES (this revision, minimal, additive):
-+ FIX #A: Renamed the two-argument VA file-write helper from _va_save(path, data)
-          to _va_write(path, data) so it no longer shadows the one-argument
-          _va_save(dict) used at VA call sites. Prevents RecursionError on all
-          VA endpoints once VA_ENABLED=1.
-+ FIX #B: Removed unreachable dead code in api_wallet_deposit_initiate()
-          after the inline Flutterwave/Paystack if/else (both branches return).
-+ FIX #C: Named the original midnight-bonus background thread
-          "_midnight_bonus_loop" so a future hardened/debug wrapper can
-          detect it and will not spawn a duplicate.
-+ FIX #D: Rewrote /api/category_images to be cache-first. On the fast path
-          it reads _CATEGORY_IMAGE_CACHE / _PRODUCT_CACHE_DB and returns
-          in milliseconds. On the slow path (cold cache) it schedules a
-          background refresh via the existing _background_refresh_products()
-          helper and returns the emoji placeholder immediately. Scrapers
-          (load_jumia / load_kilimall / load_carrefour) are NOT modified;
-          they still run to completion on daemon threads, still respect
-          _SCRAPE_LOCK, and still write to the same disk cache. Result:
-          user requests never wait for a scrape, and the shop keeps
-          collecting new items from all three vendors in the background.
+PAYMENT GATEWAYS REMOVED:
+- Flutterwave, Paystack, CoinGate, MoonPay integrations removed entirely.
+- All /api/psc/topup/* endpoints removed.
+- All /webhooks/* gateway callbacks removed.
+- /api/wallet/deposit/initiate and /verify removed.
+- Payment links (/pay/<token>) removed.
+- Virtual Account issuance removed (relied on Flutterwave).
+- Bank-list + account-resolution endpoints removed (relied on Flutterwave).
+- Wallet funding is now ADMIN-MANUAL only (via /api/wallet/purchase with
+  X-PSC-Admin-Token), P2P transfers, mining rewards, welcome bonus, and
+  daily bonus/visit bonus. All other logic preserved.
 """
 
 from dotenv import load_dotenv
@@ -90,8 +64,12 @@ from filelock import FileLock
 import warnings
 warnings.filterwarnings("ignore", message="line buffering.*binary mode", category=RuntimeWarning)
 
+# --- Portable path root (works on Windows / Linux / Docker) ---
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
+# --- Portable path root (works on Windows / Linux / Docker) ---
 
+# --- Portable path root (works on Windows / Linux / Docker) ---
 
 
 # === PSC PATCH: PLAYWRIGHT SEMAPHORE (A+B) ===
@@ -132,17 +110,11 @@ except Exception as _psc_pw_err:
 _PRODUCT_CACHE_DB = {}
 _CACHE_LOCK = threading.Lock()
 
-# === FIX 4: hoisted so _register_products() can be called by the
-# loaders before their original definition point. Values are identical. ===
 _PRODUCT_CACHE = {}
 _CATEGORY_CACHE = {}
-# === END FIX 4 ===
 
 
 def _cache_get(key):
-    """Return fresh data, or None if stale/missing.
-    Never deletes stale entries: _cache_get_soft serves them while a
-    background SWR refresh runs."""
     with _CACHE_LOCK:
         entry = _PRODUCT_CACHE_DB.get(key)
         if not entry:
@@ -170,7 +142,7 @@ def _cache_clear():
 
 
 # ============================================================
-#  PSC â€” PERSISTENT DISK CACHE (ADDITIVE, NON-BREAKING)
+#  PSC â€” PERSISTENT DISK CACHE
 # ============================================================
 
 DISK_CACHE_FILE = os.path.join(
@@ -259,36 +231,21 @@ _JUMIA_BLOCKED_UNTIL = 0.0
 _JUMIA_BLOCKED_LOCK = threading.Lock()
 _JUMIA_BACKOFF_SECONDS = 300
 
-# === ANTI-BLOCK: per-vendor backoff + UA rotation + jitter ===
-# Kilimall-specific Cloudflare / rate-limit backoff. Mirrors the Jumia
-# pattern so a block on one vendor does not stop the other two.
 _KILIMALL_BLOCKED_UNTIL = 0.0
 _KILIMALL_BLOCKED_LOCK = threading.Lock()
 _KILIMALL_BACKOFF_SECONDS = 300
 
-# Carrefour-specific backoff. Carrefour is the most forgiving of the
-# three, but still rate-limits on bursts; this keeps a bad window from
-# cascading.
 _CARREFOUR_BLOCKED_UNTIL = 0.0
 _CARREFOUR_BLOCKED_LOCK = threading.Lock()
 _CARREFOUR_BACKOFF_SECONDS = 300
 
-# === ADDITIVE: Jiji-specific backoff (mirrors the other three) ===
 _JIJI_BLOCKED_UNTIL = 0.0
 _JIJI_BLOCKED_LOCK = threading.Lock()
 _JIJI_BACKOFF_SECONDS = 300
-# === END ADDITIVE ===
 
-# === ADDITIVE: fail-open multi-vendor product aggregation ===
-# Each vendor is isolated. A slow/blocked vendor cannot prevent the other
-# vendors from returning products. Existing vendor loaders, caches and
-# fallback behaviour remain unchanged.
 _VENDOR_SCRAPE_TIMEOUT_SECONDS = 90
 _VENDOR_EXECUTOR_MAX_WORKERS = 4
-# === END ADDITIVE ===
 
-# Rotating user-agent pool. Fresh UA per scrape reduces fingerprint-based
-# bans. All eight strings are real, current, and widely seen in the wild.
 _USER_AGENTS = [
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139.0.0.0 Safari/537.36",
@@ -306,25 +263,9 @@ def _random_ua():
 
 
 def _jitter(base_ms, spread_ms=2000):
-    """Return a random wait between base_ms and base_ms+spread_ms."""
     return random.randint(int(base_ms), int(base_ms) + int(spread_ms))
-# === END ANTI-BLOCK constants ===
 
 
-# === ADDITIVE: optional proxy support (off by default) ===
-# If PSC_PROXY_SERVER is unset, _playwright_proxy_config() returns None
-# and every browser launch is 100% identical to before. If it IS set,
-# all vendor scrapers route through the proxy so vendors see the proxy
-# IP instead of this server's real IP.
-#
-# .env examples:
-#   PSC_PROXY_SERVER=http://proxy.example.com:8080
-#   PSC_PROXY_USERNAME=myuser
-#   PSC_PROXY_PASSWORD=mypass
-#
-# Rotating proxy pools:
-#   PSC_PROXY_SERVERS=http://p1:8080,http://p2:8080,http://p3:8080
-#   (when set, one is picked at random per browser launch)
 PSC_PROXY_SERVER   = os.getenv("PSC_PROXY_SERVER", "").strip()
 PSC_PROXY_USERNAME = os.getenv("PSC_PROXY_USERNAME", "").strip()
 PSC_PROXY_PASSWORD = os.getenv("PSC_PROXY_PASSWORD", "").strip()
@@ -334,11 +275,6 @@ PSC_PROXY_SERVERS  = [
 
 
 def _playwright_proxy_config():
-    """
-    Return a dict for Playwright's `proxy=` kwarg, or None if no proxy
-    is configured. When None is returned, the caller falls back to the
-    original launch signature, so behaviour is unchanged.
-    """
     server = ""
     if PSC_PROXY_SERVERS:
         server = random.choice(PSC_PROXY_SERVERS)
@@ -356,9 +292,6 @@ def _playwright_proxy_config():
     return cfg
 
 
-
-
-# === ADDITIVE: STEALTH HELPERS (Jumia + Jiji anti-block) ===
 _STEALTH_INIT_JS = r"""
 Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
 Object.defineProperty(navigator, 'languages', { get: () => ['en-KE','en-US','en'] });
@@ -434,13 +367,9 @@ def _wait_for_cloudflare_clear(page, max_seconds=25):
         except Exception:
             _t.sleep(1)
     return not _cloudflare_present(page)
-# === END ADDITIVE: STEALTH HELPERS ===
+
 
 def _launch_browser(p):
-    """
-    Centralised browser launch. Applies proxy config if present.
-    ADDITIVE: extra stealth flags to reduce bot-detection surface.
-    """
     kwargs = {
         "headless": True,
         "args": [
@@ -464,7 +393,6 @@ def _launch_browser(p):
     if proxy_cfg:
         kwargs["proxy"] = proxy_cfg
     return p.chromium.launch(**kwargs)
-# === END ADDITIVE: optional proxy support ===
 
 
 def _scrape_recently_done(query_key):
@@ -480,88 +408,31 @@ def _mark_scrape_done(query_key):
         _LAST_SCRAPE_AT[query_key] = time.time()
 
 
-# ---------- VENDOR REGISTRY (INTERNAL USE ONLY) ----------
 VENDORS = {
-    "jumia": {
-        "key": "jumia",
-        "label": "Jumia",
-        "prefix": "jumia:",
-        "url_template": "https://www.jumia.co.ke/catalog/?q={query}",
-    },
-    "kilimall": {
-        "key": "kilimall",
-        "label": "Kilimall",
-        "prefix": "kilimall:",
-        "url_template": "https://www.kilimall.co.ke/search?q={query}",
-    },
-    "carrefour": {
-        "key": "carrefour",
-        "label": "Carrefour",
-        "prefix": "carrefour:",
-        "url_template": "https://www.carrefour.ke/mafken/en/search?keyword={query}",
-    },
-    # === ADDITIVE: Jiji Kenya ===
-    "jiji": {
-        "key": "jiji",
-        "label": "Jiji",
-        "prefix": "jiji:",
-        "url_template": "https://jiji.co.ke/search?query={query}",
-    },
-    # === END ADDITIVE ===
-
-    # === ADDITIVE: 5 EXTRA KENYAN VENDORS ===
-    "fahavi": {
-        "key": "fahavi",
-        "label": "Fahavi Computers",
-        "prefix": "fahavi:",
-        "url_template": "https://fahavicomputers.co.ke/?s={query}&post_type=product",
-    },
-    "textbookcentre": {
-        "key": "textbookcentre",
-        "label": "Text Book Centre",
-        "prefix": "tbc:",
-        "url_template": "https://textbookcentre.com/catalogsearch/result/?q={query}",
-    },
-    "naivas": {
-        "key": "naivas",
-        "label": "Naivas",
-        "prefix": "naivas:",
-        "url_template": "https://naivas.co.ke/search?q={query}",
-    },
-    "vivo": {
-        "key": "vivo",
-        "label": "Vivo",
-        "prefix": "vivo:",
-        "url_template": "https://vivo.co.ke/catalogsearch/result/?q={query}",
-    },
-    "copell": {
-        "key": "copell",
-        "label": "Copell",
-        "prefix": "copell:",
-        "url_template": "https://copell.co.ke/?s={query}&post_type=product",
-    },
-    # === END ADDITIVE: 5 EXTRA KENYAN VENDORS ===
-
-    # === ADDITIVE: MASOKO + HOTPOINT + SAMSUNG BRAND STORE ===
-    "masoko": {
-        "key": "masoko",
-        "label": "Safaricom Masoko",
-        "prefix": "masoko:",
-        "url_template": "https://masoko.co.ke/search?q={query}",
-    },
-    "hotpoint": {
-        "key": "hotpoint",
-        "label": "Hotpoint Appliances",
-        "prefix": "hotpoint:",
-        "url_template": "https://hotpoint.co.ke/catalogsearch/result/?q={query}",
-    },
-    "samsungstore": {
-        "key": "samsungstore",
-        "label": "Samsung Brand Store",
-        "prefix": "samsung:",
-        "url_template": "https://samsungbrandstore.co.ke/catalogsearch/result/?q={query}",
-    },
-    # === END ADDITIVE ===
+    "jumia": {"key": "jumia", "label": "Jumia", "prefix": "jumia:",
+              "url_template": "https://www.jumia.co.ke/catalog/?q={query}"},
+    "kilimall": {"key": "kilimall", "label": "Kilimall", "prefix": "kilimall:",
+                 "url_template": "https://www.kilimall.co.ke/search?q={query}"},
+    "carrefour": {"key": "carrefour", "label": "Carrefour", "prefix": "carrefour:",
+                  "url_template": "https://www.carrefour.ke/mafken/en/search?keyword={query}"},
+    "jiji": {"key": "jiji", "label": "Jiji", "prefix": "jiji:",
+             "url_template": "https://jiji.co.ke/search?query={query}"},
+    "fahavi": {"key": "fahavi", "label": "Fahavi Computers", "prefix": "fahavi:",
+               "url_template": "https://fahavicomputers.co.ke/?s={query}&post_type=product"},
+    "textbookcentre": {"key": "textbookcentre", "label": "Text Book Centre", "prefix": "tbc:",
+                       "url_template": "https://textbookcentre.com/catalogsearch/result/?q={query}"},
+    "naivas": {"key": "naivas", "label": "Naivas", "prefix": "naivas:",
+               "url_template": "https://naivas.co.ke/search?q={query}"},
+    "vivo": {"key": "vivo", "label": "Vivo", "prefix": "vivo:",
+             "url_template": "https://vivo.co.ke/catalogsearch/result/?q={query}"},
+    "copell": {"key": "copell", "label": "Copell", "prefix": "copell:",
+               "url_template": "https://copell.co.ke/?s={query}&post_type=product"},
+    "masoko": {"key": "masoko", "label": "Safaricom Masoko", "prefix": "masoko:",
+               "url_template": "https://masoko.co.ke/search?q={query}"},
+    "hotpoint": {"key": "hotpoint", "label": "Hotpoint Appliances", "prefix": "hotpoint:",
+                 "url_template": "https://hotpoint.co.ke/catalogsearch/result/?q={query}"},
+    "samsungstore": {"key": "samsungstore", "label": "Samsung Brand Store", "prefix": "samsung:",
+                     "url_template": "https://samsungbrandstore.co.ke/catalogsearch/result/?q={query}"},
 }
 
 _VENDOR_BY_LABEL = {v["label"].lower(): v for v in VENDORS.values()}
@@ -591,13 +462,7 @@ def _vendor_for_source(source_name):
     return _VENDOR_BY_LABEL.get(str(source_name or "").strip().lower(), {}).get("key", "")
 
 
-# ---------- VENDOR HIDING ----------
 _VENDOR_FIELDS_TO_STRIP = ("vendor", "vendor_url", "source")
-
-_CLIENT_PRODUCT_FIELDS = (
-    "id", "name", "price", "kes_price", "client_kes",
-    "category", "image", "markup", "save_more", "is_new",
-)
 
 
 def _strip_vendor_fields(product):
@@ -622,7 +487,6 @@ def _sanitize_client_query(raw):
     return cleaned
 
 
-# ---------- SEARCH QUERY NORMALIZATION ----------
 _FILLER_WORDS = {
     "smart", "phone", "phones", "mobile", "cell", "cellphone",
     "buy", "shop", "online", "cheap", "best", "good", "new",
@@ -652,118 +516,110 @@ DAILY_LOGIN_BONUS_KES = 100
 DAILY_LOGIN_BONUS_PSC = round(DAILY_LOGIN_BONUS_KES / PSC_TO_KES_RATE, 2)
 BONUS_DISCOUNT_RATE = 0.01
 MIN_BALANCE_TO_SHOP = 5.0
-CACHE_TTL_SECONDS = 600  # 10 minutes for in-memory product cache
+CACHE_TTL_SECONDS = 600
 ADMIN_PHONE = "0796208133"
 
-WALLET_DIR = r"C:\Users\erick\Desktop\PSC_Coin_Complete\wallets"
-ORDERS_FILE = r"C:\Users\erick\Desktop\PSC_Coin_Complete\orders_from_clients.json"
-CLIENTS_FILE = r"C:\Users\erick\Desktop\PSC_Coin_Complete\client_registry.json"
+WALLET_DIR = os.path.join(BASE_DIR, "wallets")
+ORDERS_FILE = os.path.join(BASE_DIR, "orders_from_clients.json")
+CLIENTS_FILE = os.path.join(BASE_DIR, "client_registry.json")
 
-ADMIN_CLIENT_WALLETS_FILE = os.path.join(DATA_DIR, "client_wallets.json")
-ADMIN_LEDGER_FILE = os.path.join(DATA_DIR, "client_wallet_ledger.json")
+ADMIN_CLIENT_WALLETS_FILE = os.path.join(BASE_DIR, "client_wallets.json")
+ADMIN_LEDGER_FILE = os.path.join(BASE_DIR, "client_wallet_ledger.json")
 
-PAYMENTS_FILE         = r"C:\Users\erick\Desktop\PSC_Coin_Complete\payments.json"
-WITHDRAWAL_QUEUE_FILE = r"C:\Users\erick\Desktop\PSC_Coin_Complete\withdrawal_queue.json"
-PAYOUT_AUDIT_FILE     = r"C:\Users\erick\Desktop\PSC_Coin_Complete\payout_audit.json"
+PAYMENTS_FILE         = os.path.join(BASE_DIR, "payments.json")
+WITHDRAWAL_QUEUE_FILE = os.path.join(BASE_DIR, "withdrawal_queue.json")
+PAYOUT_AUDIT_FILE     = os.path.join(BASE_DIR, "payout_audit.json")
 
 MARKUP_DEFAULT = 0.05
 
 CATEGORY_MARKUPS = {
     "laptop": 0.15, "laptops": 0.15, "notebook": 0.15, "notebooks": 0.15,
-        "macbook": 0.15, "macbooks": 0.15, "chromebook": 0.15,
-        "ultrabook": 0.15, "desktop": 0.15, "workstation": 0.15,
-        "pc": 0.15, "computer": 0.15, "computers": 0.15,
-        "hp": 0.15, "dell": 0.15, "lenovo": 0.15, "asus": 0.15,
-        "acer": 0.15, "toshiba": 0.15, "msi": 0.15, "razer": 0.15,
-        "inspiron": 0.15, "pavilion": 0.15, "thinkpad": 0.15,
-        "ideapad": 0.15, "zenbook": 0.15, "vivobook": 0.15,
-        "spectre": 0.15, "envy": 0.15, "omen": 0.15, "predator": 0.15,
+    "macbook": 0.15, "macbooks": 0.15, "chromebook": 0.15,
+    "ultrabook": 0.15, "desktop": 0.15, "workstation": 0.15,
+    "pc": 0.15, "computer": 0.15, "computers": 0.15,
+    "hp": 0.15, "dell": 0.15, "lenovo": 0.15, "asus": 0.15,
+    "acer": 0.15, "toshiba": 0.15, "msi": 0.15, "razer": 0.15,
+    "inspiron": 0.15, "pavilion": 0.15, "thinkpad": 0.15,
+    "ideapad": 0.15, "zenbook": 0.15, "vivobook": 0.15,
+    "spectre": 0.15, "envy": 0.15, "omen": 0.15, "predator": 0.15,
 
-        "phone": 0.15, "phones": 0.15, "smartphone": 0.15, "smartphones": 0.15,
-        "iphone": 0.15, "iphones": 0.15,
-        "galaxy": 0.15, "redmi": 0.15, "poco": 0.15,
-        "tecno": 0.15, "infinix": 0.15, "oppo": 0.15, "vivo": 0.15,
-        "oneplus": 0.15, "huawei": 0.15, "xiaomi": 0.15,
-        "nokia": 0.15, "itel": 0.15, "realme": 0.15,
-        "tablet": 0.15, "tablets": 0.15, "ipad": 0.15, "ipads": 0.15,
-        "tab": 0.15, "mobile": 0.15, "cellphone": 0.15,
+    "phone": 0.15, "phones": 0.15, "smartphone": 0.15, "smartphones": 0.15,
+    "iphone": 0.15, "iphones": 0.15,
+    "galaxy": 0.15, "redmi": 0.15, "poco": 0.15,
+    "tecno": 0.15, "infinix": 0.15, "oppo": 0.15, "vivo": 0.15,
+    "oneplus": 0.15, "huawei": 0.15, "xiaomi": 0.15,
+    "nokia": 0.15, "itel": 0.15, "realme": 0.15,
+    "tablet": 0.15, "tablets": 0.15, "ipad": 0.15, "ipads": 0.15,
+    "tab": 0.15, "mobile": 0.15, "cellphone": 0.15,
 
-        "jewelry": 0.15, "jewellery": 0.15, "jewel": 0.15, "jewels": 0.15,
-        "watch": 0.15, "watches": 0.15, "wristwatch": 0.15, "smartwatch": 0.15,
-        "ring": 0.15, "rings": 0.15,
-        "necklace": 0.15, "necklaces": 0.15,
-        "earring": 0.15, "earrings": 0.15,
-        "bracelet": 0.15, "bracelets": 0.15,
-        "pendant": 0.15, "pendants": 0.15,
-        "chain": 0.15, "chains": 0.15,
-        "gold": 0.15, "silver": 0.15,
-        "diamond": 0.15, "diamonds": 0.15,
-        "gemstone": 0.15, "gemstones": 0.15,
+    "jewelry": 0.15, "jewellery": 0.15, "jewel": 0.15, "jewels": 0.15,
+    "watch": 0.15, "watches": 0.15, "wristwatch": 0.15, "smartwatch": 0.15,
+    "ring": 0.15, "rings": 0.15,
+    "necklace": 0.15, "necklaces": 0.15,
+    "earring": 0.15, "earrings": 0.15,
+    "bracelet": 0.15, "bracelets": 0.15,
+    "pendant": 0.15, "pendants": 0.15,
+    "chain": 0.15, "chains": 0.15,
+    "gold": 0.15, "silver": 0.15,
+    "diamond": 0.15, "diamonds": 0.15,
+    "gemstone": 0.15, "gemstones": 0.15,
 
-        # ============================================================
-        # ADDITIVE: FRIDGES / REFRIGERATORS / FREEZERS = 15%
-        # ============================================================
-        "fridge": 0.15, "fridges": 0.15,
-        "refrigerator": 0.15, "refrigerators": 0.15,
-        "freezer": 0.15, "freezers": 0.15,
-        "deep freezer": 0.15, "deepfreezer": 0.15, "deep-freezer": 0.15,
-        "fridge freezer": 0.15, "fridge-freezer": 0.15,
-        "cooler": 0.15, "coolers": 0.15,
-        "cold room": 0.15, "coldroom": 0.15,
+    "fridge": 0.15, "fridges": 0.15,
+    "refrigerator": 0.15, "refrigerators": 0.15,
+    "freezer": 0.15, "freezers": 0.15,
+    "deep freezer": 0.15, "deepfreezer": 0.15, "deep-freezer": 0.15,
+    "fridge freezer": 0.15, "fridge-freezer": 0.15,
+    "cooler": 0.15, "coolers": 0.15,
+    "cold room": 0.15, "coldroom": 0.15,
 
-        # ============================================================
-        # ADDITIVE: BEAUTY / COSMETICS / HEALTH & BEAUTY = 15%
-        # ============================================================
-        "beauty": 0.15, "beauty products": 0.15,
-        "health & beauty": 0.15, "health and beauty": 0.15,
-        "cosmetic": 0.15, "cosmetics": 0.15,
-        "makeup": 0.15, "make-up": 0.15, "make up": 0.15,
-        "skincare": 0.15, "skin care": 0.15,
-        "perfume": 0.15, "perfumes": 0.15,
-        "fragrance": 0.15, "fragrances": 0.15,
-        "lipstick": 0.15, "lipsticks": 0.15,
-        "lip gloss": 0.15, "lipgloss": 0.15,
-        "lip balm": 0.15, "lipbalm": 0.15,
-        "mascara": 0.15, "eyeliner": 0.15, "eyeshadow": 0.15,
-        "eyebrow": 0.15, "eyebrows": 0.15,
-        "blush": 0.15, "blusher": 0.15,
-        "concealer": 0.15,
-        "nail polish": 0.15, "nailpolish": 0.15,
-        "body lotion": 0.15, "body cream": 0.15,
-        "lotion": 0.15, "lotions": 0.15,
-        "face cream": 0.15, "facecream": 0.15,
-        "face wash": 0.15, "facewash": 0.15,
-        "moisturizer": 0.15, "moisturiser": 0.15,
-        "moisturizing": 0.15, "moisturising": 0.15,
-        "shampoo": 0.15, "shampoos": 0.15,
-        "conditioner": 0.15, "conditioners": 0.15,
-        "deodorant": 0.15, "deodorants": 0.15,
-        "serum": 0.15, "serums": 0.15,
-        "cleanser": 0.15, "cleansers": 0.15,
-        "hair care": 0.15, "haircare": 0.15,
-        "wig": 0.15, "wigs": 0.15,
-        "hair extension": 0.15, "hair extensions": 0.15,
-    }
+    "beauty": 0.15, "beauty products": 0.15,
+    "health & beauty": 0.15, "health and beauty": 0.15,
+    "cosmetic": 0.15, "cosmetics": 0.15,
+    "makeup": 0.15, "make-up": 0.15, "make up": 0.15,
+    "skincare": 0.15, "skin care": 0.15,
+    "perfume": 0.15, "perfumes": 0.15,
+    "fragrance": 0.15, "fragrances": 0.15,
+    "lipstick": 0.15, "lipsticks": 0.15,
+    "lip gloss": 0.15, "lipgloss": 0.15,
+    "lip balm": 0.15, "lipbalm": 0.15,
+    "mascara": 0.15, "eyeliner": 0.15, "eyeshadow": 0.15,
+    "eyebrow": 0.15, "eyebrows": 0.15,
+    "blush": 0.15, "blusher": 0.15,
+    "concealer": 0.15,
+    "nail polish": 0.15, "nailpolish": 0.15,
+    "body lotion": 0.15, "body cream": 0.15,
+    "lotion": 0.15, "lotions": 0.15,
+    "face cream": 0.15, "facecream": 0.15,
+    "face wash": 0.15, "facewash": 0.15,
+    "moisturizer": 0.15, "moisturiser": 0.15,
+    "moisturizing": 0.15, "moisturising": 0.15,
+    "shampoo": 0.15, "shampoos": 0.15,
+    "conditioner": 0.15, "conditioners": 0.15,
+    "deodorant": 0.15, "deodorants": 0.15,
+    "serum": 0.15, "serums": 0.15,
+    "cleanser": 0.15, "cleansers": 0.15,
+    "hair care": 0.15, "haircare": 0.15,
+    "wig": 0.15, "wigs": 0.15,
+    "hair extension": 0.15, "hair extensions": 0.15,
+}
 
 
 app = Flask(__name__)
 
-# === AUTO-SHARE PATCH (added) ===
-import auto_share
-auto_share.install(app, port=5001, auto_start=True)
-# === END AUTO-SHARE PATCH ===
+try:
+    import auto_share
+    auto_share.install(app, port=5001, auto_start=True)
+except Exception as _as_e:
+    print(f"[AUTO-SHARE] skipped: {_as_e}")
 
-# === SESSION PERSISTENCE (ADDITIVE) ===
-# Store sessions on disk so server restarts don't log everyone out.
 from flask_session import Session
 app.config["SESSION_TYPE"] = "filesystem"
-app.config["SESSION_FILE_DIR"] = r"C:\Users\erick\Desktop\PSC_Coin_Complete\flask_sessions"
+app.config["SESSION_FILE_DIR"] = os.path.join(BASE_DIR, "flask_sessions")
 app.config["SESSION_PERMANENT"] = True
 app.config["SESSION_USE_SIGNER"] = True
 app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
-app.config["SESSION_COOKIE_SECURE"] = False   # set True after enabling HTTPS
+app.config["SESSION_COOKIE_SECURE"] = False
 Session(app)
-# === END SESSION PERSISTENCE ===
 
 app.secret_key = os.environ.get(
     "PSC_SECRET_KEY",
@@ -785,7 +641,6 @@ limiter = Limiter(
 )
 
 
-# ---------- HMAC signing for client_registry.json ----------
 _CLIENTS_SIG_FILE = CLIENTS_FILE + ".sig"
 _CLIENTS_HMAC_SECRET = os.environ.get(
     "PSC_REGISTRY_SECRET",
@@ -833,8 +688,6 @@ def _audit_login(phone, success, reason=""):
     except Exception:
         pass
 
-
-# ---------- INTERNAL HELPERS ----------
 
 def _ensure_wallet_dir():
     if not os.path.exists(WALLET_DIR):
@@ -899,8 +752,6 @@ def _next_order_id(orders):
     return f"CLI-{len(orders) + 1:05d}"
 
 
-# ---------- STABLE PRODUCT IDs ----------
-
 def _stable_product_id(name, source="", category="", kes_price=None):
     identity = "|".join([
         str(source or "").strip().lower(),
@@ -933,8 +784,6 @@ def _register_products(products):
         _PRODUCT_CACHE[product["id"]] = product
     return products
 
-
-# ---------- ADMIN-SIDE MIRROR ----------
 
 def _admin_merge_wallet(address, name="", phone="", email="",
                        mpesa_number="", purchased_psc=None, bonus_psc=None,
@@ -1016,8 +865,6 @@ def _admin_ledger_add(entry):
         print(f"[ADMIN-SYNC] ledger write failed: {e}")
 
 
-# ---------- CLIENT REGISTRY ----------
-
 def _load_clients():
     if not os.path.exists(CLIENTS_FILE):
         return {}
@@ -1028,9 +875,7 @@ def _load_clients():
         if not _verify_clients_signature(_raw_body):
             print(
                 "[SECURITY] client_registry.json signature mismatch or "
-                "missing. The file has been modified outside the app, or "
-                "this is the first run after enabling signing. Treating "
-                "load as normal but will re-sign on next save."
+                "missing."
             )
 
         clients = json.loads(_raw_body.decode("utf-8"))
@@ -1157,8 +1002,6 @@ def upsert_client(phone, shipping, wallet_address):
     )
 
 
-# ---------- WALLET HELPERS ----------
-
 def _wallet_total(wallet):
     return round(
         float(wallet.get("wallet_psc", 0) or 0)
@@ -1256,12 +1099,6 @@ def _add_purchased_psc(address, amount_psc, kes_amount=None, payment_reference="
     return True, "OK", wallet
 
 
-# ============================================================
-# ADDITIVE (Option C) â€” TARGET-AWARE PSC CREDITING
-# Single credit path used by all verifiers/webhooks.
-# target âˆˆ {"spendable","wallet","savings","deposit"}  (default "spendable")
-# ============================================================
-
 def _normalize_credit_target(target):
     t = str(target or "").strip().lower()
     if t in ("wallet", "spendable", "wallet_psc", ""):
@@ -1276,13 +1113,6 @@ def _normalize_credit_target(target):
 def _add_psc_to_target(address, amount_psc, target="spendable",
                        kes_amount=None, payment_reference="",
                        audit_type="TOPUP"):
-    """
-    Credits PSC into the requested pocket.
-    - spendable â†’ wallet_psc (existing behaviour)
-    - savings   â†’ savings_psc
-    - deposit   â†’ deposit_psc (hold-only; not spent by the shop)
-    Returns (ok, msg, wallet).
-    """
     target = _normalize_credit_target(target)
     if target == "spendable":
         return _add_purchased_psc(
@@ -1301,7 +1131,7 @@ def _add_psc_to_target(address, amount_psc, target="spendable",
 
     if target == "savings":
         wallet["savings_psc"] = round(float(wallet.get("savings_psc", 0) or 0) + amount_psc, 2)
-    else:  # deposit
+    else:
         wallet["deposit_psc"] = round(float(wallet.get("deposit_psc", 0) or 0) + amount_psc, 2)
 
     wallet["balance"] = _wallet_total(wallet)
@@ -1371,8 +1201,6 @@ def add_daily_login_bonus(address):
         wallet
     )
 
-
-# ---------- DAILY VISIT BONUS (ADDITIVE) ----------
 
 def _grant_daily_visit_bonus(wallet_addr):
     if not wallet_addr:
@@ -1461,22 +1289,12 @@ def deduct_bonus_psc(address, amount):
 
 
 def calculate_bonus_discount(total_client_kes, available_bonus_psc):
-    """
-    Calculate the Bonus PSC discount without ever treating Bonus PSC as
-    spendable payment currency.
-
-    Bonus PSC is discount-only. Purchased/spendable PSC pays the final
-    checkout amount. Savings PSC is only used when the customer explicitly
-    selects Savings as the payment source. Deposit PSC is never used here.
-    """
     total_client_kes = max(0.0, float(total_client_kes or 0))
     available_bonus_psc = max(0.0, float(available_bonus_psc or 0))
 
     requested_discount_psc = round(
         total_client_kes * BONUS_DISCOUNT_RATE / PSC_TO_KES_RATE, 4
     )
-
-    # The discount can never exceed the Bonus PSC actually available.
     bonus_used_psc = round(
         min(requested_discount_psc, available_bonus_psc), 4
     )
@@ -1487,12 +1305,11 @@ def calculate_bonus_discount(total_client_kes, available_bonus_psc):
         discount_kes,
         discount_psc,
         bonus_used_psc,
-        0.0,  # Bonus PSC never receives payment funding from the wallet.
+        0.0,
     )
 
 
 def deduct_savings_psc(address, amount):
-    """Deduct PSC from the Savings pocket only when explicitly selected."""
     wallet = get_wallet(address)
     if not wallet:
         return False, "Wallet not found"
@@ -1523,14 +1340,6 @@ def deduct_savings_psc(address, amount):
 
 
 def partial_deduct_for_shortfall(address, payable_psc, source="bonus"):
-    """
-    Make a partial checkout deduction from the explicitly selected
-    spendable pocket.
-
-    source='bonus' means Bonus PSC may provide the discount, but payment
-    comes ONLY from wallet_psc. source='savings' deducts ONLY savings_psc.
-    Bonus PSC is never deducted as order payment.
-    """
     wallet = get_wallet(address)
     if not wallet:
         return {"ok": False, "decline": True, "message": "Wallet not found"}
@@ -1604,11 +1413,6 @@ def partial_deduct_for_shortfall(address, payable_psc, source="bonus"):
 
 
 def deduct_balance(address, amount):
-    """Legacy compatibility helper: deduct purchased PSC only.
-
-    Bonus, Savings, and Deposit pockets are never silently consumed by a
-    generic balance deduction.
-    """
     wallet = get_wallet(address)
     if not wallet:
         return False, "Wallet not found"
@@ -1645,31 +1449,31 @@ def markup_for(name, category):
 # ---------- CATEGORY GROUPING ----------
 
 CATEGORY_GROUPS = [
-    {"key": "phones", "label": "Phones & Tablets", "query": "smartphone", "emoji": "📱"},
-    {"key": "tv", "label": "TVs & Audio", "query": "smart tv", "emoji": "📺"},
-    {"key": "appliances", "label": "Appliances", "query": "home appliance", "emoji": "🔌"},
-    {"key": "health", "label": "Health & Beauty", "query": "beauty products", "emoji": "💄"},
-    {"key": "home", "label": "Home & Office", "query": "home kitchen", "emoji": "🏠"},
-    {"key": "fashion", "label": "Fashion", "query": "fashion", "emoji": "👕"},
-    {"key": "computing", "label": "Computing", "query": "laptop", "emoji": "💻"},
-    {"key": "gaming", "label": "Gaming", "query": "gaming console", "emoji": "🎮"},
-    {"key": "groceries", "label": "Groceries", "query": "groceries", "emoji": "🛒"},
-    {"key": "baby", "label": "Baby Products", "query": "baby products", "emoji": "🍼"},
-    {"key": "sports", "label": "Sporting Goods", "query": "sports equipment", "emoji": "⚽"},
-    {"key": "books", "label": "Books", "query": "books", "emoji": "📚"},
-    {"key": "food", "label": "Food & Pantry", "query": "food", "emoji": "🍽️"},
-    {"key": "unga", "label": "Unga & Flour", "query": "flour", "emoji": "🌾"},
-    {"key": "sugar", "label": "Sugar & Sweeteners", "query": "sugar", "emoji": "🍬"},
-    {"key": "rice", "label": "Rice & Grains", "query": "rice", "emoji": "🍚"},
-    {"key": "cooking_oil", "label": "Cooking Oil", "query": "cooking oil", "emoji": "🫒"},
-    {"key": "cereals", "label": "Cereals & Breakfast", "query": "cereal", "emoji": "🥣"},
-    {"key": "snacks", "label": "Snacks & Biscuits", "query": "biscuits", "emoji": "🍪"},
-    {"key": "beverages", "label": "Beverages & Drinks", "query": "drinks", "emoji": "🥤"},
-    {"key": "dairy", "label": "Dairy & Eggs", "query": "milk", "emoji": "🥛"},
-    {"key": "meat", "label": "Meat & Fish", "query": "chicken", "emoji": "🥩"},
-    {"key": "vegetables", "label": "Vegetables & Fruits", "query": "vegetables", "emoji": "🥬"},
-    {"key": "spices", "label": "Spices & Condiments", "query": "spices", "emoji": "🧂"},
-    {"key": "canned", "label": "Canned & Packaged", "query": "canned beans", "emoji": "🥫"},
+    {"key": "phones", "label": "Phones & Tablets", "query": "smartphone", "emoji": ""},
+    {"key": "tv", "label": "TVs & Audio", "query": "smart tv", "emoji": ""},
+    {"key": "appliances", "label": "Appliances", "query": "home appliance", "emoji": ""},
+    {"key": "health", "label": "Health & Beauty", "query": "beauty products", "emoji": ""},
+    {"key": "home", "label": "Home & Office", "query": "home kitchen", "emoji": ""},
+    {"key": "fashion", "label": "Fashion", "query": "fashion", "emoji": ""},
+    {"key": "computing", "label": "Computing", "query": "laptop", "emoji": ""},
+    {"key": "gaming", "label": "Gaming", "query": "gaming console", "emoji": ""},
+    {"key": "groceries", "label": "Groceries", "query": "groceries", "emoji": ""},
+    {"key": "baby", "label": "Baby Products", "query": "baby products", "emoji": ""},
+    {"key": "sports", "label": "Sporting Goods", "query": "sports equipment", "emoji": ""},
+    {"key": "books", "label": "Books", "query": "books", "emoji": ""},
+    {"key": "food", "label": "Food & Pantry", "query": "food", "emoji": ""},
+    {"key": "unga", "label": "Unga & Flour", "query": "flour", "emoji": ""},
+    {"key": "sugar", "label": "Sugar & Sweeteners", "query": "sugar", "emoji": ""},
+    {"key": "rice", "label": "Rice & Grains", "query": "rice", "emoji": ""},
+    {"key": "cooking_oil", "label": "Cooking Oil", "query": "cooking oil", "emoji": ""},
+    {"key": "cereals", "label": "Cereals & Breakfast", "query": "cereal", "emoji": ""},
+    {"key": "snacks", "label": "Snacks & Biscuits", "query": "biscuits", "emoji": ""},
+    {"key": "beverages", "label": "Beverages & Drinks", "query": "drinks", "emoji": ""},
+    {"key": "dairy", "label": "Dairy & Eggs", "query": "milk", "emoji": ""},
+    {"key": "meat", "label": "Meat & Fish", "query": "chicken", "emoji": ""},
+    {"key": "vegetables", "label": "Vegetables & Fruits", "query": "vegetables", "emoji": ""},
+    {"key": "spices", "label": "Spices & Condiments", "query": "spices", "emoji": ""},
+    {"key": "canned", "label": "Canned & Packaged", "query": "canned beans", "emoji": ""},
 ]
 
 FALLBACK_CATEGORY_IMAGES = {
@@ -1701,27 +1505,13 @@ FALLBACK_CATEGORY_IMAGES = {
 }
 
 
-
-# ---------- PRODUCT SOURCES (file two's sequential scraper) ----------
-#
-# Replaces the four Playwright-based loaders (load_jumia / load_kilimall /
-# load_carrefour / load_jiji) with file two's sequential approach:
-#   * Jumia is scraped with requests + BeautifulSoup (fast, no browser)
-#   * Kilimall / Carrefour / Jiji use Playwright
-#   * Vendors are tried in order and the FIRST successful one wins
-#   * Products are returned in file one's format so _register_products()
-#     can assign stable IDs and the existing cache layer keeps working
-#
-# Nothing else in file one (cache, SWR, fallback, /api/*, wallets, VA,
-# savings, deposit pocket, payments, templates, CSS) is touched.
+# ---------- PRODUCT SOURCES ----------
 
 _JUMIA_REQUESTS_BLOCKED_UNTIL = 0.0
 _JUMIA_REQUESTS_BLOCK_SECONDS = 1800
 
 
 def _scrape_jumia(q, headers):
-    """Jumia scraper. Requests first (fast), Playwright fallback.
-    The requests path is disabled for 10 min after any 403 to reduce log noise."""
     global _JUMIA_REQUESTS_BLOCKED_UNTIL
     import requests as _req
     from bs4 import BeautifulSoup as _BS
@@ -1729,7 +1519,6 @@ def _scrape_jumia(q, headers):
     url = (f"https://www.jumia.co.ke{q}" if q.startswith("/")
            else f"https://www.jumia.co.ke/catalog/?q={quote_plus(q)}")
 
-    # ---------- FAST PATH: requests (skipped if recently blocked) ----------
     if time.time() >= _JUMIA_REQUESTS_BLOCKED_UNTIL:
         try:
             resp = _req.get(url, headers=headers, timeout=15)
@@ -1737,7 +1526,6 @@ def _scrape_jumia(q, headers):
                 _JUMIA_REQUESTS_BLOCKED_UNTIL = time.time() + _JUMIA_REQUESTS_BLOCK_SECONDS
                 print(f"[PSC SCRAPE] Jumia 403; requests path disabled for {_JUMIA_REQUESTS_BLOCK_SECONDS}s")
             elif resp.status_code == 200:
-                print(f"[PSC SCRAPE] Jumia HTTP 200 for '{q}' ({len(resp.text)} bytes)")
                 soup = _BS(resp.text, "html.parser")
                 cards = (soup.select("article.prd")
                          or soup.select("article.-pvxs")
@@ -1782,7 +1570,6 @@ def _scrape_jumia(q, headers):
         except Exception as e:
             print(f"Jumia requests error: {e}")
 
-    # ---------- SLOW PATH: Playwright ----------
     try:
         from playwright.sync_api import sync_playwright
         products = []
@@ -1848,7 +1635,6 @@ def _scrape_jumia(q, headers):
 
 
 def _scrape_kilimall(q, headers):
-    """Kilimall scraper. Playwright headless Chrome."""
     try:
         from playwright.sync_api import sync_playwright
         products = []
@@ -1903,7 +1689,6 @@ def _scrape_kilimall(q, headers):
 
 
 def _scrape_carrefour(q):
-    """Carrefour scraper. Headless Chrome with stealth."""
     try:
         from playwright.sync_api import sync_playwright
         products = []
@@ -2016,7 +1801,6 @@ def _scrape_carrefour(q):
 
 
 def _scrape_jiji(q, headers):
-    """Jiji scraper. Chrome headless."""
     try:
         from playwright.sync_api import sync_playwright
         products = []
@@ -2112,15 +1896,7 @@ def _scrape_jiji(q, headers):
     return []
 
 
-# ============================================================
-# ADDITIVE: 5 EXTRA KENYAN VENDOR SCRAPERS
-# 3 generic scrapers + 5 vendor wrappers. Same behavior,
-# much shorter than 5 hand-duplicated functions.
-# ============================================================
-
-
 def _scrape_woocommerce(q, url_template, source_label, category, headers):
-    """Generic WooCommerce scraper (Fahavi, Copell, etc.)."""
     try:
         from playwright.sync_api import sync_playwright
         products = []
@@ -2212,7 +1988,6 @@ def _scrape_woocommerce(q, url_template, source_label, category, headers):
 
 
 def _scrape_magento(q, url_template, source_label, category, headers):
-    """Generic Magento scraper (Text Book Centre, Vivo, etc.)."""
     try:
         from playwright.sync_api import sync_playwright
         products = []
@@ -2313,7 +2088,6 @@ def _scrape_magento(q, url_template, source_label, category, headers):
 
 
 def _scrape_generic_react(q, url_template, source_label, category, headers):
-    """Generic React/Next.js scraper (Naivas and similar)."""
     try:
         from playwright.sync_api import sync_playwright
         products = []
@@ -2447,40 +2221,25 @@ def _scrape_copell(q, headers):
         "Copell", "Groceries", headers)
 
 
-# === END ADDITIVE: 5 EXTRA KENYAN VENDOR SCRAPERS ===
-
-# === ADDITIVE: MASOKO + HOTPOINT + SAMSUNG BRAND STORE ===
-
-
 def _scrape_masoko(q, headers):
-    """Safaricom Masoko — official Safaricom store (React site)."""
     return _scrape_generic_react(
         q, "https://masoko.co.ke/search?q={q}",
         "Safaricom Masoko", "Phones & TVs", headers)
 
 
 def _scrape_hotpoint(q, headers):
-    """Hotpoint Appliances — Hisense-authorised, big TV inventory (Magento)."""
     return _scrape_magento(
         q, "https://hotpoint.co.ke/catalogsearch/result/?q={q}",
         "Hotpoint Appliances", "TVs & Appliances", headers)
 
 
 def _scrape_samsungstore(q, headers):
-    """Samsung Brand Store — official Samsung Kenya store (Magento)."""
     return _scrape_magento(
         q, "https://samsungbrandstore.co.ke/catalogsearch/result/?q={q}",
         "Samsung Brand Store", "Samsung", headers)
 
 
-# === END ADDITIVE ===
-
-
 def _scrape_vendors_sequential(query, vendor=None):
-    """
-    Sequential vendor scraper. Each vendor isolated in its own helper.
-    Respects the vendor parameter: if set, ONLY that vendor is attempted.
-    """
     q = str(query or "electronics").strip() or "electronics"
     vendor = str(vendor or "").strip().lower() or None
     headers = {
@@ -2501,7 +2260,6 @@ def _scrape_vendors_sequential(query, vendor=None):
     if vendor in (None, "jiji"):
         p = _scrape_jiji(q, headers)
         if p: return p
-    # === ADDITIVE: 5 EXTRA KENYAN VENDORS ===
     if vendor in (None, "fahavi"):
         p = _scrape_fahavi(q, headers)
         if p: return p
@@ -2517,9 +2275,6 @@ def _scrape_vendors_sequential(query, vendor=None):
     if vendor in (None, "copell"):
         p = _scrape_copell(q, headers)
         if p: return p
-    # === END ADDITIVE ===
-
-    # === ADDITIVE: MASOKO + HOTPOINT + SAMSUNG BRAND STORE ===
     if vendor in (None, "masoko"):
         p = _scrape_masoko(q, headers)
         if p: return p
@@ -2529,7 +2284,6 @@ def _scrape_vendors_sequential(query, vendor=None):
     if vendor in (None, "samsungstore"):
         p = _scrape_samsungstore(q, headers)
         if p: return p
-    # === END ADDITIVE ===
 
     try:
         with open('products.json', 'r') as f:
@@ -2551,14 +2305,8 @@ def _scrape_vendors_sequential(query, vendor=None):
     ]
 
 
-# ---------- END PRODUCT SOURCES ----------
-
-
 # ============================================================
 # PSC SELLER SUBSYSTEM
-# Additive. Allows anyone to register as a seller and list items.
-# Seller items appear in the shop feed alongside scraped products.
-# No existing scraping, wallet, or checkout logic is modified.
 # ============================================================
 
 SELLERS_FILE = os.path.join(
@@ -2598,16 +2346,6 @@ def _current_seller():
 
 
 def _seller_items_for_query(query):
-    """Return ACTIVE seller items matching the query string.
-
-    Matching order (strict):
-      1. Exact category_query match  (e.g. "smart tv")
-      2. Exact category_key  match   (e.g. "tv")
-      3. Exact category label match  (e.g. "TVs & Audio")
-      4. Keyword-only match          (every word must appear in keywords)
-      5. Fallback: every search word must appear in the full haystack
-         (AND logic, not OR)
-    """
     q = str(query or "").strip().lower()
     if not q:
         return []
@@ -2618,7 +2356,6 @@ def _seller_items_for_query(query):
         if item.get("status") != "ACTIVE":
             continue
 
-        # --- Exact category matches (fast path, most reliable) ---
         cat_q = str(item.get("category_query") or "").strip().lower()
         if cat_q and cat_q == q:
             out.append(item)
@@ -2634,13 +2371,11 @@ def _seller_items_for_query(query):
             out.append(item)
             continue
 
-        # --- Keyword-only match: every query word must be in keywords ---
         kw_blob = " ".join(str(k) for k in (item.get("keywords") or [])).lower()
         if kw_blob and q_tokens and all(w in kw_blob for w in q_tokens):
             out.append(item)
             continue
 
-        # --- Fallback: AND across the full haystack (was previously OR) ---
         haystack = " ".join([
             str(item.get("name", "")),
             str(item.get("category", "")),
@@ -2656,7 +2391,6 @@ def _seller_items_for_query(query):
 
 
 def _build_seller_product(item):
-    """Convert a seller item record into a shop product dict."""
     try:
         kes_price = round(float(item.get("kes_price") or 0), 2)
     except (TypeError, ValueError):
@@ -2679,9 +2413,6 @@ def _build_seller_product(item):
     }
 
 
-
-# ---------------- SELLER IMAGE HANDLING ----------------
-
 import mimetypes as _mimetypes
 from urllib.parse import urlparse as _urlparse
 
@@ -2699,12 +2430,6 @@ SELLER_IMAGE_ALLOWED_EXT = {".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp", ".
 
 
 def _localize_seller_image(src):
-    """Turn any image source into a locally-hosted URL.
-    - empty            -> ""
-    - /static/...      -> unchanged
-    - http(s)://...    -> download + save, return /static/seller_images/<file>
-    - anything else    -> unchanged
-    """
     src = str(src or "").strip()
     if not src:
         return ""
@@ -2796,15 +2521,10 @@ def api_seller_upload_image():
         return jsonify({"success": False, "message": str(e)}), 500
 
 
-# ---------------- SELLER PAGES ----------------
-
-
 @app.route("/sell")
 def sell_page():
     return render_template("seller.html")
 
-
-# ---------------- SELLER API ----------------
 
 @app.route("/api/seller/register", methods=["POST"])
 def api_seller_register():
@@ -2962,8 +2682,6 @@ def api_seller_items_add():
             return jsonify({"success": False,
                             "message": "Price is too high."}), 400
 
-        # Resolve the seller's chosen category to a CATEGORY_GROUPS
-        # entry so we can store its key/query for strict matching later.
         auto_kw = []
         matched_cat_key = ""
         matched_cat_query = ""
@@ -3002,7 +2720,6 @@ def api_seller_items_add():
         })
         _save_seller_items(items)
 
-        # Drop caches so the new item shows up on the very next shop query.
         try:
             _cache_clear()
             _save_disk_cache(force=True)
@@ -3043,12 +2760,6 @@ def api_seller_items_delete(item_id):
     return jsonify({"success": True, "message": "Item removed."})
 
 
-# ---------- END SELLER SUBSYSTEM ----------
-
-
-
-
-
 def _fallback_products(category_label="Sample"):
     products = [
         {
@@ -3083,10 +2794,6 @@ def _fallback_products(category_label="Sample"):
 
 _INFLIGHT = {}
 
-
-# ============================================================
-#  SWR â€” STALE-WHILE-REVALIDATE BACKGROUND REFRESH
-# ============================================================
 _SWR_INFLIGHT = set()
 _SWR_INFLIGHT_LOCK = threading.Lock()
 
@@ -3102,7 +2809,6 @@ def _background_refresh_products(query, vendor=None, cache_key=None):
 
     def _worker():
         if not _SCRAPE_LOCK.acquire(blocking=True, timeout=120):
-            # Lock busy - give up silently, retry next cycle.
             with _SWR_INFLIGHT_LOCK:
                 _SWR_INFLIGHT.discard(cache_key)
             return
@@ -3127,12 +2833,6 @@ def _background_refresh_products(query, vendor=None, cache_key=None):
 
 
 def _load_products_live(query, vendor=None):
-    """
-    Wraps _scrape_vendors_sequential (file two's pipeline).
-    Products already carry file two's full dict shape; file one's
-    _register_products() only adds stable hashed IDs + vendor_url
-    without altering anything else.
-    """
     query = str(query or "").strip()
     if not query:
         return []
@@ -3170,8 +2870,6 @@ def _recent_user_activity(within_seconds=15):
 
 
 def load_products(query, allow_block=True, vendor=None):
-    # If called from a live Flask request, mark user activity so the
-    # background warmer yields the scrape lock.
     try:
         from flask import has_request_context
         if has_request_context():
@@ -3203,15 +2901,11 @@ def load_products(query, allow_block=True, vendor=None):
 
     if _scrape_recently_done(query_key):
         print(f"[PSC SEARCH] '{vendor or 'all'}:{query}' in cooldown, returning empty.")
-        # === GAP FIX #3 ===
-        # Fallback so cooldown windows don't show an empty grid.
-                # === FIX 6: never cache fallbacks under the real key; they must be
-        # allowed to be replaced the moment real products arrive. ===
         fb = _fallback_products(query.title())
         _register_products(fb)
         return fb
 
-    acquired = _SCRAPE_LOCK.acquire(blocking=True, timeout=60)  # SCRAPE_LOCK_WAIT_FIX
+    acquired = _SCRAPE_LOCK.acquire(blocking=True, timeout=60)
     if not acquired:
         cached = _cache_get_soft(cache_key)
         if cached is not None:
@@ -3221,7 +2915,6 @@ def load_products(query, allow_block=True, vendor=None):
         fb = _fallback_products(query.title())
         _register_products(fb)
         return fb
-        # === END FIX 6 ===
 
     try:
         cached = _cache_get(cache_key)
@@ -3231,7 +2924,6 @@ def load_products(query, allow_block=True, vendor=None):
 
         if _scrape_recently_done(query_key):
             print(f"[PSC SEARCH] '{vendor or 'all'}:{query}' in cooldown after wait, returning empty.")
-            # === GAP FIX #3 ===
             fb = _fallback_products(query.title())
             _register_products(fb)
             return fb
@@ -3250,12 +2942,9 @@ def load_products(query, allow_block=True, vendor=None):
             print(f"[PSC SEARCH] '{vendor or 'all'}:{query}' returned {len(all_products)} real products.")
             return all_products
 
-        # === GAP FIX #3 ===
-        # No real products found â€” serve fallback so the shop is never empty.
         print(f"[PSC SEARCH] No real products found for '{vendor or 'all'}:{query}'. Serving fallback.")
         fb = _fallback_products(query.title())
         _register_products(fb)
-        # === ADDITIVE: short-lived fallback cache (60s) ===
         _fallback_ttl = 60
         with _CACHE_LOCK:
             _PRODUCT_CACHE_DB[cache_key] = (
@@ -3263,7 +2952,6 @@ def load_products(query, allow_block=True, vendor=None):
             )
         _cache_save_async()
         return fb
-        # === END ADDITIVE ===
 
     finally:
         _SCRAPE_LOCK.release()
@@ -3298,8 +2986,6 @@ def load_products_multi(keywords, per_query=50, allow_block=True, vendor=None):
     print(f"[PSC MULTI] merged {len(combined)} products from {len(keywords)} keywords (vendor={vendor or 'all'})")
     return combined
 
-
-# ---------- NEW KEYWORDS ----------
 
 _NEW_2026_KEYWORDS = [
     "iphone 18", "iphone18", "galaxy s26", "galaxy s25 ultra",
@@ -3343,8 +3029,6 @@ def _build_hero(products, limit=10):
     random.shuffle(with_img)
     return with_img[:limit]
 
-
-# ---------- MIDNIGHT DAILY BONUS THREAD ----------
 
 def _midnight_bonus_loop():
     while True:
@@ -3402,16 +3086,10 @@ def _midnight_bonus_loop():
 
 
 # ============================================================
-# BLOCK A + C + D  â€”  FLUTTERWAVE TOP-UP, WITHDRAWALS, PAYOUTS
+# WITHDRAWALS / PAYOUTS â€” ADMIN MANUAL ONLY (gateways removed)
 # ============================================================
 
-FLW_PUBLIC_KEY     = os.getenv("FLW_PUBLIC_KEY", "")
-FLW_SECRET_KEY     = os.getenv("FLW_SECRET_KEY", "")
-FLW_WEBHOOK_SECRET = os.getenv("FLW_WEBHOOK_SECRET", "")
-FLW_BASE_URL       = os.getenv("FLW_BASE_URL", "https://api.flutterwave.com/v3")
-
 PSC_ADMIN_TOKEN       = os.getenv("PSC_ADMIN_TOKEN", "")
-PAYOUTS_LIVE          = os.getenv("PAYOUTS_LIVE", "0").strip() == "1"
 PAYOUT_MAX_KES        = float(os.getenv("PAYOUT_MAX_KES", "500") or 500)
 PAYOUT_DAILY_MAX_KES  = float(os.getenv("PAYOUT_DAILY_MAX_KES", "5000") or 5000)
 
@@ -3445,34 +3123,6 @@ def _jsave(path, data):
 
 def _now():
     return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
-
-def _flw_headers():
-    return {"Authorization": f"Bearer {FLW_SECRET_KEY}", "Content-Type": "application/json"}
-
-
-def _payments_all():
-    d = _jload(PAYMENTS_FILE, [])
-    return d if isinstance(d, list) else []
-
-
-def _payment_find(tx_ref):
-    for row in _payments_all():
-        if row.get("tx_ref") == tx_ref:
-            return row
-    return None
-
-
-def _payment_add(row):
-    rows = _payments_all(); rows.append(row); _jsave(PAYMENTS_FILE, rows)
-
-
-def _payment_update(tx_ref, **fields):
-    rows = _payments_all()
-    for row in rows:
-        if row.get("tx_ref") == tx_ref:
-            row.update(fields); _jsave(PAYMENTS_FILE, rows); return row
-    return None
 
 
 def _wq_all():
@@ -3588,258 +3238,6 @@ def _client_by_wallet(address):
     return None
 
 
-@app.route("/api/psc/topup/initiate", methods=["POST"])
-def api_psc_topup_initiate():
-    try:
-        _peek = request.get_json(silent=True) or {}
-    except Exception:
-        _peek = {}
-    _requested_gw = str(_peek.get("gateway") or _peek.get("provider") or "paystack").strip().lower()
-    if _requested_gw == "flutterwave":
-        return jsonify({"success": False,
-                        "message": "Flutterwave has been disabled. Please use Paystack or CoinGate."}), 400
-    return api_psc_topup_initiate_ps()
-
-    if not FLW_SECRET_KEY:
-        return jsonify({"success": False,
-                        "message": "Flutterwave keys not configured in .env"}), 500
-    try:
-        data = request.get_json() or {}
-
-        user = session.get("user")
-        session_wallet = session.get("wallet", "")
-        if not user or not session_wallet:
-            return jsonify({
-                "success": False,
-                "message": "Please log in to your account before buying PSC."
-            }), 401
-
-        address = str(data.get("wallet") or session_wallet or "").strip()
-        if not address:
-            return jsonify({"success": False, "message": "wallet is required"}), 400
-        if address != session_wallet:
-            return jsonify({
-                "success": False,
-                "message": "Wallet does not match the logged-in account."
-            }), 403
-
-        verified_phone = session.get("verified_phone", "")
-        if not verified_phone:
-            return jsonify({
-                "success": False,
-                "message": "Please verify your phone at checkout before buying PSC."
-            }), 403
-
-        client = get_client_by_phone(verified_phone)
-        if not client:
-            return jsonify({
-                "success": False,
-                "message": "No registered account found for your phone number."
-            }), 404
-
-        client_wallet = str(client.get("wallet_address", "")).strip()
-        if client_wallet != address:
-            return jsonify({
-                "success": False,
-                "message": "Your verified phone does not belong to this wallet."
-            }), 403
-
-        amount_kes = float(data.get("amount_kes") or 0)
-        redirect_url = str(data.get("redirect_url") or "").strip()
-
-        if amount_kes < 1:
-            return jsonify({"success": False,
-                            "message": "amount_kes must be at least 1"}), 400
-
-        wallet = get_wallet(address)
-        if not wallet:
-            return jsonify({"success": False, "message": "Wallet not found"}), 404
-
-        # ADDITIVE (Option C): capture credit target on the payment record.
-        _target = _normalize_credit_target(
-            data.get("target") or data.get("credit_target") or "spendable"
-        )
-
-        tx_ref = "PSC-" + uuid.uuid4().hex[:16]
-        expected_psc = round(amount_kes / PSC_TO_KES_RATE, 2)
-
-        _payment_add({
-            "tx_ref": tx_ref, "wallet_address": address,
-            "amount_kes": round(amount_kes, 2), "expected_psc": expected_psc,
-            "status": "PENDING", "provider": "flutterwave",
-            "flw_tx_id": None, "created_at": _now(),
-            "verified_at": None, "credited_psc": 0.0,
-            "target": _target,
-        })
-
-        payload = {
-            "tx_ref": tx_ref,
-            "amount": str(round(amount_kes, 2)),
-            "currency": "KES",
-            "redirect_url": redirect_url or request.url_root.rstrip("/") + "/psc_topup_return",
-            "payment_options": "card,mpesa,banktransfer,ussd",
-            "customer": {
-                "email": client.get("email") or "customer@example.com",
-                "phonenumber": client.get("phone") or verified_phone or "",
-                "name": client.get("name") or (user.get("name") if user else "") or "PSC Customer",
-            },
-            "customizations": {
-                "title": "PSC Top-Up",
-                "description": f"Buy {expected_psc} PSC for KES {amount_kes:.2f}",
-            },
-        }
-        r = _http.post(f"{FLW_BASE_URL}/payments", json=payload,
-                       headers=_flw_headers(), timeout=20)
-        resp = r.json() if r.content else {}
-
-        print(f"[FLW] status={r.status_code} resp={str(resp)[:400]}")
-
-        if r.status_code >= 300 or resp.get("status") != "success":
-            _payment_update(tx_ref, status="FAILED",
-                            error=str(resp.get("message") or r.text)[:300])
-            return jsonify({"success": False,
-                            "message": resp.get("message") or "Flutterwave error"}), 502
-
-        return jsonify({
-            "success": True, "tx_ref": tx_ref,
-            "checkout_url": resp["data"]["link"],
-            "amount_kes": round(amount_kes, 2),
-            "expected_psc": expected_psc,
-            "gateway": "flutterwave",
-            "target": _target,
-            "message": "Open the checkout link to complete payment.",
-        })
-    except Exception as e:
-        return jsonify({"success": False, "message": str(e)}), 500
-
-
-def _verify_and_credit(tx_ref, flw_tx_id):
-    row = _payment_find(tx_ref)
-    if not row:
-        return False, "Unknown tx_ref", None
-    if row.get("status") == "COMPLETED":
-        return True, "Already credited", row
-    if row.get("status") == "FAILED":
-        return False, "Payment previously marked FAILED", row
-    if not FLW_SECRET_KEY:
-        return False, "Flutterwave keys not configured", row
-    try:
-        r = _http.get(f"{FLW_BASE_URL}/transactions/{flw_tx_id}/verify",
-                      headers=_flw_headers(), timeout=20)
-        resp = r.json() if r.content else {}
-        if r.status_code >= 300 or resp.get("status") != "success":
-            return False, resp.get("message") or "Verify call failed", row
-
-        d = resp.get("data") or {}
-        got_amount   = float(d.get("amount") or 0)
-        got_currency = str(d.get("currency") or "").upper()
-        got_status   = str(d.get("status") or "").lower()
-        got_ref      = str(d.get("tx_ref") or "")
-
-        if got_ref != tx_ref:
-            return False, "tx_ref mismatch", row
-        if got_status != "successful":
-            _payment_update(tx_ref, status="FAILED", flw_tx_id=flw_tx_id,
-                            error=f"provider status={got_status}")
-            return False, f"Provider status: {got_status}", row
-        if got_currency != "KES":
-            _payment_update(tx_ref, status="FAILED", flw_tx_id=flw_tx_id,
-                            error=f"currency={got_currency}")
-            return False, "Currency mismatch", row
-        if got_amount + 0.01 < float(row.get("amount_kes") or 0):
-            _payment_update(tx_ref, status="FAILED", flw_tx_id=flw_tx_id,
-                            error=f"amount {got_amount} < expected {row.get('amount_kes')}")
-            return False, "Amount less than expected", row
-
-        psc_amount = float(row["expected_psc"])
-        kes_amount = float(row["amount_kes"])
-
-        # ADDITIVE (Option C): route to the requested pocket.
-        _target = _normalize_credit_target(row.get("target") or "spendable")
-        ok, msg, _wallet = _add_psc_to_target(
-            row["wallet_address"], psc_amount,
-            target=_target, kes_amount=kes_amount,
-            payment_reference=tx_ref,
-            audit_type="FLW_TOPUP",
-        )
-        if not ok:
-            _payment_update(tx_ref, status="FAILED", flw_tx_id=flw_tx_id,
-                            error=f"credit failed: {msg}")
-            return False, f"Credit failed: {msg}", row
-
-        _payment_update(tx_ref, status="COMPLETED", flw_tx_id=flw_tx_id,
-                        verified_at=_now(), credited_psc=psc_amount, error="")
-
-        _close_partial_if_any(row["wallet_address"])
-        return True, f"Credited {psc_amount:.2f} PSC", _payment_find(tx_ref)
-    except Exception as e:
-        return False, str(e), row
-
-
-@app.route("/api/psc/topup/verify", methods=["POST"])
-def api_psc_topup_verify():
-    try:
-        _peek = request.get_json(silent=True) or {}
-    except Exception:
-        _peek = {}
-    _requested_gw = str(_peek.get("gateway") or _peek.get("provider") or "paystack").strip().lower()
-    if _requested_gw != "flutterwave":
-        return api_psc_topup_verify_ps()
-
-    try:
-        data = request.get_json() or {}
-        tx_ref = str(data.get("tx_ref") or "").strip()
-        flw_tx_id = data.get("transaction_id") or data.get("flw_tx_id")
-        if not tx_ref or not flw_tx_id:
-            return jsonify({"success": False, "message": "tx_ref and transaction_id required"}), 400
-        ok, msg, row = _verify_and_credit(tx_ref, flw_tx_id)
-        return jsonify({"success": ok, "message": msg, "payment": row,
-                        "gateway": "flutterwave"}), (200 if ok else 400)
-    except Exception as e:
-        return jsonify({"success": False, "message": str(e)}), 500
-
-
-@app.route("/webhooks/flutterwave", methods=["POST"])
-def webhook_flutterwave():
-    try:
-        if not FLW_WEBHOOK_SECRET:
-            return jsonify({"success": False,
-                            "message": "webhook secret not configured"}), 401
-        sent = request.headers.get("verif-hash", "")
-        if not hmac.compare_digest(sent, FLW_WEBHOOK_SECRET):
-            return jsonify({"success": False, "message": "bad signature"}), 401
-
-        body = request.get_json(silent=True) or {}
-        d = body.get("data") or {}
-        tx_ref = str(d.get("tx_ref") or "").strip()
-        flw_tx_id = d.get("id")
-        if not tx_ref or not flw_tx_id:
-            return jsonify({"success": True, "message": "ignored"}), 200
-        _verify_and_credit(tx_ref, flw_tx_id)
-        return jsonify({"success": True}), 200
-    except Exception as e:
-        return jsonify({"success": False, "message": str(e)}), 500
-
-
-@app.route("/api/psc/topup/status/<tx_ref>")
-def api_psc_topup_status(tx_ref):
-    row = _payment_find(tx_ref)
-    if not row:
-        return jsonify({"success": False, "message": "not found"}), 404
-    return jsonify({"success": True, "payment": row, "gateway": "flutterwave"})
-
-
-@app.route("/api/psc/topup/history/<address>")
-def api_psc_topup_history(address):
-    rows = [r for r in _payments_all() if r.get("wallet_address") == address]
-    return jsonify({"success": True, "payments": rows, "gateway": "flutterwave"})
-
-
-@app.route("/psc_topup_return")
-def psc_topup_return_page():
-    return render_template("psc_topup_return.html")
-
-
 @app.route("/api/psc/withdraw/request", methods=["POST"])
 def api_psc_withdraw_request():
     try:
@@ -3907,14 +3305,7 @@ def api_psc_withdraw_request():
             if not dest:
                 return jsonify({"success": False, "message": "No M-PESA number on this account."}), 400
         elif method == "card-refund":
-            row = None
-            for p in reversed(_payments_all()):
-                if p.get("wallet_address") == address and p.get("status") == "COMPLETED":
-                    row = p; break
-            if not row:
-                return jsonify({"success": False,
-                                "message": "No completed card payment found to refund."}), 400
-            dest = f"card-of:{row['tx_ref']}"
+            dest = destination or "manual-refund"
         else:
             if not bank_code or not destination:
                 return jsonify({"success": False, "message": "bank_code and account number required."}), 400
@@ -3970,7 +3361,7 @@ def api_psc_withdraw_request():
             "method": method,
             "status": "PENDING",
             "message": (f"Withdrawal {withdrawal_id} created for KES {amount_kes:.2f}. "
-                        f"Waiting for admin to review and pay."),
+                        f"Waiting for admin to review and pay manually."),
         })
     except Exception as e:
         return jsonify({"success": False, "message": str(e)}), 500
@@ -3997,58 +3388,6 @@ def _payout_today_total():
         if str(row.get("at", "")).startswith(today) and row.get("result") == "SUCCESS":
             total += float(row.get("amount_kes") or 0)
     return round(total, 2)
-
-
-def _flw_transfer(row):
-    method = row.get("method")
-    dest = str(row.get("destination") or "")
-    amount_kes = float(row.get("amount_kes") or 0)
-
-    if method == "mpesa":
-        num = dest.replace("+", "").strip()
-        if num.startswith("0"): num = "254" + num[1:]
-        elif not num.startswith("254"): num = "254" + num
-        payload = {
-            "account_bank": "MPS",
-            "account_number": num,
-            "amount": amount_kes,
-            "narration": f"PSC payout {row['withdrawal_id']}",
-            "currency": "KES",
-            "reference": row["withdrawal_id"],
-            "callback_url": request.url_root.rstrip("/") + "/webhooks/flutterwave",
-            "debit_currency": "KES",
-        }
-    elif method == "bank":
-        payload = {
-            "account_bank": str(row.get("bank_code") or "").strip(),
-            "account_number": dest,
-            "amount": amount_kes,
-            "narration": f"PSC payout {row['withdrawal_id']}",
-            "currency": "KES",
-            "reference": row["withdrawal_id"],
-            "callback_url": request.url_root.rstrip("/") + "/webhooks/flutterwave",
-            "debit_currency": "KES",
-        }
-    elif method == "card-refund":
-        tx_ref = dest.split("card-of:", 1)[1] if "card-of:" in dest else ""
-        pay = _payment_find(tx_ref)
-        if not pay or not pay.get("flw_tx_id"):
-            return False, {}, "Original card transaction not found"
-        r = _http.post(
-            f"{FLW_BASE_URL}/transactions/{pay['flw_tx_id']}/refund",
-            json={"amount": amount_kes},
-            headers=_flw_headers(), timeout=20,
-        )
-        resp = r.json() if r.content else {}
-        ok = r.status_code < 300 and resp.get("status") == "success"
-        return ok, resp, ("" if ok else str(resp.get("message") or r.text)[:300])
-    else:
-        return False, {}, "Unsupported method"
-
-    r = _http.post(f"{FLW_BASE_URL}/transfers", json=payload, headers=_flw_headers(), timeout=20)
-    resp = r.json() if r.content else {}
-    ok = r.status_code < 300 and resp.get("status") == "success"
-    return ok, resp, ("" if ok else str(resp.get("message") or r.text)[:300])
 
 
 def _ledger_update(withdrawal_id, **fields):
@@ -4142,463 +3481,1596 @@ def api_admin_psc_payout_mark_paid():
                 "details": _gate.get("details", {}),
             }), _gate.get("status", 403)
 
-        if not PAYOUTS_LIVE:
-            _wq_update(wid, status="PAID", settled_at=_now(),
-                       mpesa_code=manual_code, mode="manual")
-            _wallet_release_or_settle(row["wallet_address"], float(row["amount_psc"]), wid, "PAID")
-            _ledger_update(wid, status="PAID", settled_at=_now(),
-                           mpesa_code=manual_code, mode="manual")
-            _audit_add({"withdrawal_id": wid, "amount_kes": amount_kes, "method": row.get("method"),
-                        "at": _now(), "mode": "manual", "result": "SUCCESS",
-                        "mpesa_code": manual_code})
-            _record_payout_velocity(row["wallet_address"], amount_kes, "MANUAL_PAID")
-            _maybe_cbk_report(row, amount_kes)
-            return jsonify({"success": True, "withdrawal": _wq_find(wid),
-                            "message": "Recorded as manually paid (PAYOUTS_LIVE=0)."})
-
-        ok, info, err = _flw_transfer(row)
-        if not ok:
-            _audit_add({"withdrawal_id": wid, "amount_kes": amount_kes, "method": row.get("method"),
-                        "at": _now(), "mode": "auto", "result": "FAIL", "error": err,
-                        "flw_response": info})
-            return jsonify({"success": False, "message": err or "Flutterwave transfer failed",
-                            "withdrawal": _wq_find(wid)}), 502
-
-        transfer_id = (info.get("data") or {}).get("id") if isinstance(info, dict) else None
+        # Payment gateways removed: ALL payouts are now recorded as manual.
         _wq_update(wid, status="PAID", settled_at=_now(),
-                   transfer_id=transfer_id, mode="auto", flw_response=info)
+                   mpesa_code=manual_code, mode="manual")
         _wallet_release_or_settle(row["wallet_address"], float(row["amount_psc"]), wid, "PAID")
         _ledger_update(wid, status="PAID", settled_at=_now(),
-                       transfer_id=transfer_id, mode="auto")
+                       mpesa_code=manual_code, mode="manual")
         _audit_add({"withdrawal_id": wid, "amount_kes": amount_kes, "method": row.get("method"),
-                    "at": _now(), "mode": "auto", "result": "SUCCESS",
-                    "transfer_id": transfer_id})
-        _record_payout_velocity(row["wallet_address"], amount_kes, "AUTO_PAID")
+                    "at": _now(), "mode": "manual", "result": "SUCCESS",
+                    "mpesa_code": manual_code})
+        _record_payout_velocity(row["wallet_address"], amount_kes, "MANUAL_PAID")
         _maybe_cbk_report(row, amount_kes)
         return jsonify({"success": True, "withdrawal": _wq_find(wid),
-                        "transfer_id": transfer_id,
-                        "message": "Flutterwave transfer sent."})
+                        "message": "Recorded as manually paid."})
     except Exception as e:
         return jsonify({"success": False, "message": str(e)}), 500
 
 
 # ============================================================
-# END BLOCK A + C + D
+# KYC + PAYOUT COMPLIANCE (no gateways)
 # ============================================================
 
+KYC_REQUIRED             = os.getenv("KYC_REQUIRED", "1").strip() == "1"
+KYC_ALLOWED_ID_TYPES     = [x.strip().lower() for x in
+                            os.getenv("KYC_ALLOWED_ID_TYPES",
+                                      "national_id,passport,drivers_license,huduma_namba,bvn,nin").split(",")
+                            if x.strip()]
+KYC_MIN_AGE              = int(os.getenv("KYC_MIN_AGE", "18") or 18)
 
-# ============================================================
-# PAYSTACK GATEWAY â€” ADDITIVE, OFF BY DEFAULT
-# ============================================================
+PAYOUT_VELOCITY_MAX_PER_WEEK = int(os.getenv("PAYOUT_VELOCITY_MAX_PER_WEEK", "10") or 10)
+PAYOUT_VELOCITY_MAX_PER_DAY  = int(os.getenv("PAYOUT_VELOCITY_MAX_PER_DAY", "3") or 3)
 
-PAYSTACK_ENABLED        = os.getenv("PAYSTACK_ENABLED", "0").strip() == "1"
-PAYSTACK_SECRET_KEY     = os.getenv("PAYSTACK_SECRET_KEY", "")
-PAYSTACK_PUBLIC_KEY     = os.getenv("PAYSTACK_PUBLIC_KEY", "")
-PAYSTACK_WEBHOOK_SECRET = os.getenv("PAYSTACK_WEBHOOK_SECRET", "")
-PAYSTACK_BASE_URL       = os.getenv("PAYSTACK_BASE_URL", "https://api.paystack.co")
-PAYSTACK_CURRENCY       = os.getenv("PAYSTACK_CURRENCY", "KES").strip().upper()
+CBK_REPORT_THRESHOLD_KES = float(os.getenv("CBK_REPORT_THRESHOLD_KES", "1000000") or 1000000)
+KRA_WHT_THRESHOLD_KES    = float(os.getenv("KRA_WHT_THRESHOLD_KES", "24000") or 24000)
 
-PAYSTACK_PAYMENTS_FILE = os.path.join(
-    os.path.dirname(PAYMENTS_FILE) or ".",
-    "paystack_payments.json"
+VA_DIR = os.path.dirname(CLIENTS_FILE) or "."
+KYC_FILE             = os.path.join(VA_DIR, "kyc_records.json")
+COMPLIANCE_FILE      = os.path.join(VA_DIR, "compliance_flags.json")
+VELOCITY_FILE        = os.path.join(VA_DIR, "payout_velocity.json")
+CBK_REPORT_FILE      = os.path.join(VA_DIR, "cbk_reports.json")
+SANCTIONS_FILE       = os.path.join(VA_DIR, "sanctions_blocklist.txt")
+
+_SANCTIONS_INLINE = set(
+    x.strip().lower() for x in
+    os.getenv("SANCTIONS_BLOCKLIST", "").split(",") if x.strip()
 )
 
-
-def _ps_headers():
-    return {
-        "Authorization": f"Bearer {PAYSTACK_SECRET_KEY}",
-        "Content-Type": "application/json",
-    }
+_VA_LOCK = threading.Lock()
 
 
-def _ps_payments_all():
-    d = _jload(PAYSTACK_PAYMENTS_FILE, [])
+def _va_load(path, default):
+    return _jload(path, default)
+
+
+def _va_write(path, data):
+    _jsave(path, data)
+
+
+def _kyc_all():
+    d = _va_load(KYC_FILE, {})
+    return d if isinstance(d, dict) else {}
+
+
+def _kyc_save(d):
+    _va_write(KYC_FILE, d)
+
+
+def _kyc_get(wallet_addr):
+    return _kyc_all().get(wallet_addr)
+
+
+def _kyc_upsert(wallet_addr, record):
+    d = _kyc_all()
+    d[wallet_addr] = record
+    _kyc_save(d)
+
+
+def _kyc_age_from_dob(dob_str):
+    try:
+        dob = datetime.strptime(str(dob_str).strip(), "%Y-%m-%d")
+    except Exception:
+        return None
+    today = datetime.now()
+    years = today.year - dob.year - ((today.month, today.day) < (dob.month, dob.day))
+    return years
+
+
+def _compliance_flags_all():
+    d = _va_load(COMPLIANCE_FILE, [])
     return d if isinstance(d, list) else []
 
 
-def _ps_payment_find(tx_ref):
-    for row in _ps_payments_all():
-        if row.get("tx_ref") == tx_ref:
-            return row
-    return None
-
-
-def _ps_payment_add(row):
-    rows = _ps_payments_all()
+def _compliance_flag_add(row):
+    rows = _compliance_flags_all()
     rows.append(row)
-    _jsave(PAYSTACK_PAYMENTS_FILE, rows)
+    _va_write(COMPLIANCE_FILE, rows)
 
 
-def _ps_payment_update(tx_ref, **fields):
-    rows = _ps_payments_all()
-    for r in rows:
-        if r.get("tx_ref") == tx_ref:
-            r.update(fields)
-            _jsave(PAYSTACK_PAYMENTS_FILE, rows)
-            return r
-    return None
+def _sanctions_blocklist():
+    names = set(_SANCTIONS_INLINE)
+    try:
+        if os.path.exists(SANCTIONS_FILE):
+            with open(SANCTIONS_FILE, "r", encoding="utf-8") as f:
+                for line in f:
+                    s = line.strip().lower()
+                    if s and not s.startswith("#"):
+                        names.add(s)
+    except Exception:
+        pass
+    return names
 
 
-@app.route("/api/payments/gateways", methods=["GET"])
-def api_payments_gateways():
-    gateways = []
-    if FLW_SECRET_KEY:
-        gateways.append({
-            "key": "flutterwave", "label": "Flutterwave",
-            "default": True, "currencies": ["KES"],
-        })
-    if PAYSTACK_ENABLED and PAYSTACK_SECRET_KEY:
-        gateways.append({
-            "key": "paystack", "label": "Paystack",
-            "default": len(gateways) == 0, "currencies": [PAYSTACK_CURRENCY],
-        })
-    if COINGATE_ENABLED and COINGATE_API_TOKEN:
-        gateways.append({
-            "key": "coingate",
-            "label": "CoinGate (Crypto)",
-            "default": False,
-            "currencies": COINGATE_ALLOWED_CURRENCIES,
-            "settle_currency": COINGATE_SETTLE_CUR,
-            "min_kes": COINGATE_MIN_KES,
-            "max_kes": COINGATE_MAX_KES,
-        })
-
-    if MOONPAY_ENABLED and MOONPAY_PUBLISHABLE_KEY:
-        gateways.append({
-            "key": "moonpay",
-            "label": "MoonPay (Crypto)",
-            "default": False,
-            "currencies": [c.upper() for c in MOONPAY_ALLOWED_CRYPTOS],
-            "fiat_currency": MOONPAY_CURRENCY_CODE.upper(),
-            "min_kes": MOONPAY_MIN_KES,
-            "max_kes": MOONPAY_MAX_KES,
-            "mode": MOONPAY_MODE,
-        })
-    return jsonify({"success": True, "gateways": gateways})
+def _name_in_sanctions(name):
+    n = str(name or "").strip().lower()
+    if not n:
+        return False
+    for entry in _sanctions_blocklist():
+        if entry and entry in n:
+            return True
+    return False
 
 
-@app.route("/api/psc/topup/initiate_ps", methods=["POST"])
-def api_psc_topup_initiate_ps():
-    if not PAYSTACK_ENABLED:
-        return jsonify({"success": False,
-                        "message": "Paystack is disabled (PAYSTACK_ENABLED=0)."}), 503
-    if not PAYSTACK_SECRET_KEY:
-        return jsonify({"success": False,
-                        "message": "Paystack keys not configured in .env"}), 500
+def _id_already_used(id_type, id_number, except_wallet=None):
+    id_type = str(id_type or "").strip().lower()
+    id_number = str(id_number or "").strip().lower()
+    if not id_type or not id_number:
+        return False
+    for wallet, rec in _kyc_all().items():
+        if except_wallet and wallet == except_wallet:
+            continue
+        if (str(rec.get("id_type", "")).strip().lower() == id_type and
+                str(rec.get("id_number", "")).strip().lower() == id_number):
+            return True
+    return False
+
+
+@app.route("/api/kyc/submit", methods=["POST"])
+def api_kyc_submit():
     try:
         data = request.get_json() or {}
-
-        user = session.get("user")
         session_wallet = session.get("wallet", "")
-        if not user or not session_wallet:
-            return jsonify({
-                "success": False,
-                "message": "Please log in to your account before buying PSC."
-            }), 401
+        wallet_addr = str(data.get("wallet") or session_wallet or "").strip()
 
-        address = str(data.get("wallet") or session_wallet or "").strip()
-        if not address:
-            return jsonify({"success": False, "message": "wallet is required"}), 400
-        if address != session_wallet:
-            return jsonify({
-                "success": False,
-                "message": "Wallet does not match the logged-in account."
-            }), 403
+        if not wallet_addr:
+            return jsonify({"success": False, "message": "Wallet is required."}), 400
+        if session_wallet and wallet_addr != session_wallet:
+            return jsonify({"success": False, "message": "Wallet mismatch."}), 403
 
-        verified_phone = session.get("verified_phone", "")
-        if not verified_phone:
-            return jsonify({
-                "success": False,
-                "message": "Please verify your phone at checkout before buying PSC."
-            }), 403
-
-        client = get_client_by_phone(verified_phone)
+        client = _client_by_wallet(wallet_addr)
         if not client:
+            return jsonify({"success": False, "message": "Wallet not linked to any client."}), 404
+
+        full_name   = str(data.get("full_name") or client.get("name") or "").strip()
+        phone       = _normalize_phone(data.get("phone") or client.get("phone") or "")
+        dob         = str(data.get("dob") or "").strip()
+        id_type     = str(data.get("id_type") or "").strip().lower()
+        id_number   = str(data.get("id_number") or "").strip()
+        address     = str(data.get("address") or client.get("address") or "").strip()
+
+        registered_phone = _normalize_phone(client.get("phone", ""))
+        if registered_phone and phone and phone != registered_phone:
             return jsonify({
                 "success": False,
-                "message": "No registered account found for your phone number."
-            }), 404
+                "status": "REJECTED_PHONE_MISMATCH",
+                "message": ("The phone number you entered does not match the phone "
+                            "on this account. Use the phone you registered with."),
+            }), 400
 
-        client_wallet = str(client.get("wallet_address", "")).strip()
-        if client_wallet != address:
-            return jsonify({
-                "success": False,
-                "message": "Your verified phone does not belong to this wallet."
-            }), 403
+        registered_name = str(client.get("name") or "").strip().lower()
+        given_name      = str(full_name or "").strip().lower()
+        if registered_name and given_name:
+            reg_tokens   = {w for w in registered_name.split() if len(w) >= 3}
+            given_tokens = {w for w in given_name.split()    if len(w) >= 3}
+            if reg_tokens and not (reg_tokens & given_tokens):
+                _compliance_flag_add({
+                    "at": _now(), "wallet": wallet_addr,
+                    "type": "KYC_NAME_MISMATCH",
+                    "registered": registered_name,
+                    "submitted":  given_name,
+                })
+                return jsonify({
+                    "success": False,
+                    "status": "REJECTED_NAME_MISMATCH",
+                    "message": ("The name you entered does not match the name on "
+                                "this account. Use the name you registered with."),
+                }), 400
 
-        amount_kes = float(data.get("amount_kes") or 0)
-        redirect_url = str(data.get("redirect_url") or "").strip()
+        errors = []
+        if len(full_name) < 3:
+            errors.append("full_name too short")
+        if not phone or len(phone) < 9:
+            errors.append("phone invalid")
+        if not dob:
+            errors.append("dob required")
+        else:
+            age = _kyc_age_from_dob(dob)
+            if age is None:
+                errors.append("dob must be YYYY-MM-DD")
+            elif age < KYC_MIN_AGE:
+                errors.append(f"must be at least {KYC_MIN_AGE} years old")
+        if id_type not in KYC_ALLOWED_ID_TYPES:
+            errors.append(f"id_type must be one of {KYC_ALLOWED_ID_TYPES}")
+        if not id_number or len(id_number) < 5:
+            errors.append("id_number invalid")
 
-        if amount_kes < 1:
-            return jsonify({"success": False,
-                            "message": "amount_kes must be at least 1"}), 400
+        if errors:
+            return jsonify({"success": False, "message": "; ".join(errors)}), 400
 
-        wallet = get_wallet(address)
-        if not wallet:
-            return jsonify({"success": False, "message": "Wallet not found"}), 404
+        sanctions_hit = _name_in_sanctions(full_name)
+        duplicate_id  = _id_already_used(id_type, id_number, except_wallet=wallet_addr)
 
-        amount_subunit = int(round(amount_kes * 100))
+        status = "VERIFIED"
+        if sanctions_hit:
+            status = "REJECTED_SANCTIONS"
+            _compliance_flag_add({
+                "at": _now(), "wallet": wallet_addr,
+                "type": "SANCTIONS_HIT", "name": full_name,
+                "detail": "KYC name matched blocklist",
+            })
+        elif duplicate_id:
+            status = "REJECTED_DUPLICATE_ID"
+            _compliance_flag_add({
+                "at": _now(), "wallet": wallet_addr,
+                "type": "DUPLICATE_ID",
+                "detail": f"{id_type}:{id_number} already used",
+            })
 
-        # ADDITIVE (Option C): capture credit target on the payment record.
-        _target = _normalize_credit_target(
-            data.get("target") or data.get("credit_target") or "spendable"
-        )
-
-        tx_ref = "PSC-PS-" + uuid.uuid4().hex[:16]
-        expected_psc = round(amount_kes / PSC_TO_KES_RATE, 2)
-
-        _ps_payment_add({
-            "tx_ref": tx_ref,
-            "wallet_address": address,
-            "amount_kes": round(amount_kes, 2),
-            "expected_psc": expected_psc,
-            "status": "PENDING",
-            "provider": "paystack",
-            "ps_reference": None,
-            "created_at": _now(),
-            "verified_at": None,
-            "credited_psc": 0.0,
-            "target": _target,
+        record = {
+            "wallet_address": wallet_addr,
+            "full_name": full_name,
+            "phone": phone,
+            "dob": dob,
+            "id_type": id_type,
+            "id_number_masked": ("*" * max(0, len(id_number) - 4)) + id_number[-4:],
+            "id_number_hash": hashlib.sha256(id_number.encode("utf-8")).hexdigest(),
+            "id_number": id_number,
+            "address": address,
+            "status": status,
+            "submitted_at": _now(),
+            "reviewed_at": _now(),
+        }
+        _kyc_upsert(wallet_addr, record)
+        _admin_ledger_add({
+            "type": "KYC_SUBMIT",
+            "wallet_address": wallet_addr,
+            "status": status,
+            "time": _now(),
         })
 
-        payload = {
-            "email": client.get("email") or "customer@example.com",
-            "amount": amount_subunit,
-            "currency": PAYSTACK_CURRENCY,
-            "reference": tx_ref,
-            "callback_url": redirect_url or (
-                request.url_root.rstrip("/") + "/psc_topup_return"
-            ),
-            "metadata": {
-                "wallet": address,
-                "phone": client.get("phone") or verified_phone or "",
-                "name": client.get("name") or (user.get("name") if user else "") or "PSC Customer",
-                "expected_psc": expected_psc,
-                "target": _target,
-                "custom_fields": [
-                    {"display_name": "Wallet", "variable_name": "wallet", "value": address},
-                    {"display_name": "PSC", "variable_name": "expected_psc", "value": f"{expected_psc}"},
-                    {"display_name": "Target", "variable_name": "target", "value": _target},
-                ],
+        return jsonify({
+            "success": status == "VERIFIED",
+            "status": status,
+            "message": ("KYC verified." if status == "VERIFIED"
+                        else f"KYC rejected: {status}"),
+            "record": {
+                "full_name": full_name, "status": status,
+                "id_type": id_type, "id_number_masked": record["id_number_masked"],
             },
+        }), (200 if status == "VERIFIED" else 400)
+    except Exception as e:
+        return jsonify({"success": False, "message": str(e)}), 500
+
+
+@app.route("/api/kyc/status", methods=["GET", "POST"])
+def api_kyc_status():
+    data = request.get_json(silent=True) or {}
+    session_wallet = session.get("wallet", "")
+    wallet_addr = str(data.get("wallet") or request.args.get("wallet") or session_wallet or "").strip()
+    if not wallet_addr:
+        return jsonify({"success": False, "message": "Wallet is required."}), 400
+    rec = _kyc_get(wallet_addr)
+    if not rec:
+        return jsonify({"success": True, "kyc_status": "NOT_SUBMITTED"})
+    return jsonify({
+        "success": True,
+        "kyc_status": rec.get("status", "UNKNOWN"),
+        "full_name": rec.get("full_name", ""),
+        "id_type": rec.get("id_type", ""),
+        "id_number_masked": rec.get("id_number_masked", ""),
+        "submitted_at": rec.get("submitted_at", ""),
+    })
+
+
+def _maybe_cbk_report(withdrawal_row, amount_kes):
+    try:
+        if amount_kes < KRA_WHT_THRESHOLD_KES:
+            return
+        row = {
+            "at": _now(),
+            "withdrawal_id": withdrawal_row.get("withdrawal_id"),
+            "wallet_address": withdrawal_row.get("wallet_address"),
+            "amount_kes": amount_kes,
+            "above_cbk": amount_kes >= CBK_REPORT_THRESHOLD_KES,
+            "above_kra_wht": amount_kes >= KRA_WHT_THRESHOLD_KES,
+            "method": withdrawal_row.get("method"),
         }
-        r = _http.post(f"{PAYSTACK_BASE_URL}/transaction/initialize",
-                       json=payload, headers=_ps_headers(), timeout=20)
-        resp = r.json() if r.content else {}
+        rows = _va_load(CBK_REPORT_FILE, [])
+        if not isinstance(rows, list):
+            rows = []
+        rows.append(row)
+        _va_write(CBK_REPORT_FILE, rows)
+        if row["above_cbk"]:
+            _compliance_flag_add({
+                "at": _now(), "wallet": row["wallet_address"],
+                "type": "CBK_THRESHOLD_PAYOUT",
+                "amount_kes": amount_kes,
+                "withdrawal_id": row["withdrawal_id"],
+            })
+    except Exception as e:
+        print(f"[CBK] report failed: {e}")
 
-        print(f"[PAYSTACK] status={r.status_code} resp={str(resp)[:400]}")
 
-        if r.status_code >= 300 or not resp.get("status"):
-            _ps_payment_update(tx_ref, status="FAILED",
-                               error=str(resp.get("message") or r.text)[:300])
-            return jsonify({"success": False,
-                            "message": resp.get("message") or "Paystack error"}), 502
+def _velocity_all():
+    d = _va_load(VELOCITY_FILE, {})
+    return d if isinstance(d, dict) else {}
 
-        pdata = resp.get("data") or {}
+
+def _velocity_save(d):
+    _va_write(VELOCITY_FILE, d)
+
+
+def _velocity_stats(wallet_addr):
+    today = datetime.now().strftime("%Y-%m-%d")
+    week_ago = (datetime.now() - timedelta(days=7)).strftime("%Y-%m-%d")
+    d = _velocity_all().get(wallet_addr) or {"events": []}
+    events = d.get("events", [])
+    today_count = sum(1 for e in events if str(e.get("at", "")).startswith(today))
+    week_count = sum(1 for e in events if str(e.get("at", ""))[:10] >= week_ago)
+    return {"today_count": today_count, "week_count": week_count, "events": events}
+
+
+def _record_payout_velocity(wallet_addr, amount_kes, kind="PAID"):
+    d = _velocity_all()
+    entry = d.get(wallet_addr) or {"events": []}
+    entry["events"].append({
+        "at": _now(), "amount_kes": amount_kes, "kind": kind,
+    })
+    entry["events"] = entry["events"][-200:]
+    d[wallet_addr] = entry
+    _velocity_save(d)
+
+
+def _velocity_check(wallet_addr):
+    stats = _velocity_stats(wallet_addr)
+    if stats["today_count"] + 1 > PAYOUT_VELOCITY_MAX_PER_DAY:
+        return False, f"Daily payout limit reached ({PAYOUT_VELOCITY_MAX_PER_DAY})."
+    if stats["week_count"] + 1 > PAYOUT_VELOCITY_MAX_PER_WEEK:
+        return False, f"Weekly payout limit reached ({PAYOUT_VELOCITY_MAX_PER_WEEK})."
+    return True, "OK"
+
+
+@app.route("/api/admin/payout/velocity/<wallet_addr>", methods=["GET"])
+def api_admin_payout_velocity(wallet_addr):
+    sent = request.headers.get("X-PSC-Admin-Token", "")
+    if not PSC_ADMIN_TOKEN or not hmac.compare_digest(sent, PSC_ADMIN_TOKEN):
+        return jsonify({"success": False, "message": "forbidden"}), 403
+    return jsonify({"success": True, "stats": _velocity_stats(wallet_addr)})
+
+
+def _destination_sanctioned(destination, bank_code=""):
+    dest = str(destination or "").strip()
+    if not dest:
+        return False
+    target = dest.lower()
+    for entry in _sanctions_blocklist():
+        if entry and entry in target:
+            return True
+    return False
+
+
+def _va_gate_payout(wallet_addr, client, amount_kes, method="", destination="",
+                    bank_code="", admin_side=False):
+    """Compliance gate for payouts. Payment gateways removed, so no
+    external bank-account resolution is performed. The admin confirms
+    destination manually."""
+    try:
+        vok, vmsg = _velocity_check(wallet_addr)
+        if not vok:
+            return {"ok": False, "status": 429, "gate": "velocity",
+                    "message": vmsg,
+                    "details": _velocity_stats(wallet_addr)}
+
+        if _destination_sanctioned(destination, bank_code):
+            _compliance_flag_add({
+                "at": _now(), "wallet": wallet_addr,
+                "type": "SANCTIONED_DESTINATION",
+                "destination": destination, "bank_code": bank_code,
+                "amount_kes": amount_kes, "method": method,
+            })
+            return {"ok": False, "status": 403, "gate": "sanctions_destination",
+                    "message": "Destination matches sanctions blocklist."}
+
+        if KYC_REQUIRED and amount_kes > 0:
+            kyc = _kyc_get(wallet_addr)
+            if not kyc or kyc.get("status") != "VERIFIED":
+                if admin_side:
+                    _compliance_flag_add({
+                        "at": _now(), "wallet": wallet_addr,
+                        "type": "PAYOUT_WITHOUT_KYC_ADMIN_OVERRIDE",
+                        "amount_kes": amount_kes,
+                    })
+                else:
+                    return {
+                        "ok": False, "status": 403, "gate": "kyc_required",
+                        "message": "Complete KYC before requesting a payout.",
+                        "details": {"kyc_status": (kyc or {}).get("status", "NOT_SUBMITTED")},
+                    }
+
+        if amount_kes > PAYOUT_MAX_KES + 1e-9:
+            return {"ok": False, "status": 400, "gate": "per_tx_cap",
+                    "message": f"Above per-transaction cap KES {PAYOUT_MAX_KES:.2f}"}
+
+        return {"ok": True}
+    except Exception as e:
+        print(f"[VA GATE] error: {e}")
+        return {"ok": True}
+
+
+@app.route("/api/admin/compliance/flags", methods=["GET"])
+def api_admin_compliance_flags():
+    sent = request.headers.get("X-PSC-Admin-Token", "")
+    if not PSC_ADMIN_TOKEN or not hmac.compare_digest(sent, PSC_ADMIN_TOKEN):
+        return jsonify({"success": False, "message": "forbidden"}), 403
+    return jsonify({"success": True, "flags": _compliance_flags_all()})
+
+
+@app.route("/api/admin/compliance/flag", methods=["POST"])
+def api_admin_compliance_flag():
+    sent = request.headers.get("X-PSC-Admin-Token", "")
+    if not PSC_ADMIN_TOKEN or not hmac.compare_digest(sent, PSC_ADMIN_TOKEN):
+        return jsonify({"success": False, "message": "forbidden"}), 403
+    data = request.get_json() or {}
+    _compliance_flag_add({
+        "at": _now(),
+        "wallet": str(data.get("wallet") or "").strip(),
+        "type": str(data.get("type") or "MANUAL_FLAG"),
+        "detail": str(data.get("detail") or ""),
+        "by": "admin",
+    })
+    return jsonify({"success": True})
+
+
+@app.route("/api/admin/cbk/report", methods=["GET"])
+def api_admin_cbk_report():
+    sent = request.headers.get("X-PSC-Admin-Token", "")
+    if not PSC_ADMIN_TOKEN or not hmac.compare_digest(sent, PSC_ADMIN_TOKEN):
+        return jsonify({"success": False, "message": "forbidden"}), 403
+    return jsonify({"success": True, "reports": _va_load(CBK_REPORT_FILE, [])})
+
+
+@app.route("/api/admin/aml/screen", methods=["POST"])
+def api_admin_aml_screen():
+    sent = request.headers.get("X-PSC-Admin-Token", "")
+    if not PSC_ADMIN_TOKEN or not hmac.compare_digest(sent, PSC_ADMIN_TOKEN):
+        return jsonify({"success": False, "message": "forbidden"}), 403
+    data = request.get_json() or {}
+    name = str(data.get("name") or "")
+    wallet_addr = str(data.get("wallet") or "")
+    hit = _name_in_sanctions(name)
+    if hit:
+        _compliance_flag_add({
+            "at": _now(), "wallet": wallet_addr,
+            "type": "AML_MANUAL_SANCTIONS_HIT", "name": name,
+        })
+    return jsonify({"success": True, "sanctions_hit": hit})
+
+
+# ============================================================
+# WALLET UPGRADE LAYER â€” P2P + HIGH-VALUE WITHDRAWALS
+# ============================================================
+
+WALLET_DEPOSIT_MAX_KES        = float(os.getenv("WALLET_DEPOSIT_MAX_KES", "0") or 0)
+WALLET_WITHDRAW_DAILY_MAX_KES = float(os.getenv("WALLET_WITHDRAW_DAILY_MAX_KES", "100000") or 100000)
+WALLET_TRANSFER_MIN_PSC       = float(os.getenv("WALLET_TRANSFER_MIN_PSC", "1") or 1)
+WALLET_TRANSFER_MAX_PSC       = float(os.getenv("WALLET_TRANSFER_MAX_PSC", "0") or 0)
+WALLET_TRANSFER_DAILY_MAX_PSC = float(os.getenv("WALLET_TRANSFER_DAILY_MAX_PSC", "0") or 0)
+WALLET_CARD_DEPOSIT_ENABLED   = os.getenv("WALLET_CARD_DEPOSIT_ENABLED", "1").strip() == "1"
+WALLET_BANK_DEPOSIT_ENABLED   = os.getenv("WALLET_BANK_DEPOSIT_ENABLED", "1").strip() == "1"
+WALLET_MPESA_DEPOSIT_ENABLED  = os.getenv("WALLET_MPESA_DEPOSIT_ENABLED", "1").strip() == "1"
+
+WALLET_OPS_FILE = os.path.join(
+    os.path.dirname(PAYMENTS_FILE) or ".",
+    "wallet_ledger_ops.json"
+)
+
+_WALLET_OPS_LOCK = threading.Lock()
+
+
+def _wallet_ops_all():
+    d = _jload(WALLET_OPS_FILE, [])
+    return d if isinstance(d, list) else []
+
+
+def _wallet_ops_add(row):
+    with _WALLET_OPS_LOCK:
+        rows = _wallet_ops_all()
+        rows.append(row)
+        _jsave(WALLET_OPS_FILE, rows)
+
+
+def _wallet_deposit_today_kes(wallet_addr):
+    today = datetime.now().strftime("%Y-%m-%d")
+    total = 0.0
+    for r in _wallet_ops_all():
+        if r.get("type") != "DEPOSIT":
+            continue
+        if r.get("wallet_address") != wallet_addr:
+            continue
+        if r.get("status") != "COMPLETED":
+            continue
+        if str(r.get("created_at", "")).startswith(today):
+            total += float(r.get("amount_kes") or 0)
+    return round(total, 2)
+
+
+def _wallet_withdraw_today_kes(wallet_addr):
+    today = datetime.now().strftime("%Y-%m-%d")
+    seen = set()
+    total = 0.0
+    for r in _wallet_ops_all():
+        if r.get("type") not in ("WITHDRAWAL_REQUEST", "WITHDRAWAL_PAID"):
+            continue
+        if r.get("wallet_address") != wallet_addr:
+            continue
+        if r.get("status") in ("REJECTED",):
+            continue
+        if not str(r.get("created_at", "")).startswith(today):
+            continue
+        wid = str(r.get("withdrawal_id") or r.get("request_id") or "")
+        if wid and wid in seen:
+            continue
+        if wid:
+            seen.add(wid)
+        total += float(r.get("amount_kes") or 0)
+    return round(total, 2)
+
+
+def _wallet_transfer_today_psc(wallet_addr):
+    today = datetime.now().strftime("%Y-%m-%d")
+    total = 0.0
+    for r in _wallet_ops_all():
+        if r.get("type") != "TRANSFER_OUT":
+            continue
+        if r.get("wallet_address") != wallet_addr:
+            continue
+        if r.get("status") != "COMPLETED":
+            continue
+        if str(r.get("created_at", "")).startswith(today):
+            total += float(r.get("amount_psc") or 0)
+    return round(total, 2)
+
+
+def _wallet_ui_deposit_options():
+    # Payment gateways removed: no direct deposit channels available.
+    # Deposits can only be made by admin manual credit or P2P incoming.
+    return []
+
+
+@app.route("/api/wallet/transfer/lookup", methods=["POST"])
+def api_wallet_transfer_lookup():
+    try:
+        data = request.get_json() or {}
+        query = str(data.get("query") or data.get("phone") or data.get("wallet") or "").strip()
+        if not query:
+            return jsonify({"success": False, "message": "query is required"}), 400
+
+        client = None
+        if query.upper().startswith("PSC") and len(query) >= 12:
+            client = _client_by_wallet(query)
+        else:
+            client = get_client_by_phone(query)
+
+        if not client:
+            return jsonify({"success": False, "message": "Recipient not found."}), 404
+
+        recipient_wallet = str(client.get("wallet_address", "")).strip()
+        if not recipient_wallet:
+            return jsonify({"success": False, "message": "Recipient has no wallet."}), 404
+
         return jsonify({
             "success": True,
-            "tx_ref": tx_ref,
-            "checkout_url": pdata.get("authorization_url"),
-            "access_code": pdata.get("access_code"),
-            "reference": pdata.get("reference") or tx_ref,
-            "amount_kes": round(amount_kes, 2),
-            "expected_psc": expected_psc,
-            "gateway": "paystack",
-            "target": _target,
-            "message": "Open the checkout link to complete payment.",
+            "recipient": {
+                "name": client.get("name", ""),
+                "phone": client.get("phone", ""),
+                "wallet": recipient_wallet,
+                "wallet_short": recipient_wallet[:10] + "â€¦" + recipient_wallet[-6:],
+            },
         })
     except Exception as e:
         return jsonify({"success": False, "message": str(e)}), 500
 
 
-def _ps_verify_and_credit(tx_ref, ps_reference=None):
-    row = _ps_payment_find(tx_ref)
-    if not row:
-        return False, "Unknown tx_ref", None
-    if row.get("status") == "COMPLETED":
-        return True, "Already credited", row
-    if row.get("status") == "FAILED":
-        return False, "Payment previously marked FAILED", row
-    if not PAYSTACK_SECRET_KEY:
-        return False, "Paystack keys not configured", row
-
-    try:
-        ref = str(ps_reference or row.get("ps_reference") or tx_ref).strip()
-        r = _http.get(f"{PAYSTACK_BASE_URL}/transaction/verify/{quote_plus(ref)}",
-                      headers=_ps_headers(), timeout=20)
-        resp = r.json() if r.content else {}
-        if r.status_code >= 300 or not resp.get("status"):
-            return False, resp.get("message") or "Verify call failed", row
-
-        d = resp.get("data") or {}
-        got_status   = str(d.get("status") or "").lower()
-        got_currency = str(d.get("currency") or "").upper()
-        got_amount_sub = int(d.get("amount") or 0)
-        got_amount_kes = round(got_amount_sub / 100.0, 2)
-        got_reference  = str(d.get("reference") or "").strip()
-
-        if got_reference and got_reference != tx_ref and got_reference != ref:
-            return False, "reference mismatch", row
-
-        if got_status != "success":
-            _ps_payment_update(tx_ref, status="FAILED", ps_reference=got_reference,
-                               error=f"provider status={got_status}")
-            return False, f"Provider status: {got_status}", row
-
-        if got_currency != PAYSTACK_CURRENCY:
-            _ps_payment_update(tx_ref, status="FAILED", ps_reference=got_reference,
-                               error=f"currency={got_currency}")
-            return False, "Currency mismatch", row
-
-        if got_amount_kes + 0.01 < float(row.get("amount_kes") or 0):
-            _ps_payment_update(tx_ref, status="FAILED", ps_reference=got_reference,
-                               error=f"amount {got_amount_kes} < expected {row.get('amount_kes')}")
-            return False, "Amount less than expected", row
-
-        psc_amount = float(row["expected_psc"])
-        kes_amount = float(row["amount_kes"])
-
-        # ADDITIVE (Option C): route to the requested pocket.
-        _target = _normalize_credit_target(row.get("target") or "spendable")
-        ok, msg, _wallet = _add_psc_to_target(
-            row["wallet_address"], psc_amount,
-            target=_target, kes_amount=kes_amount,
-            payment_reference=f"PS:{tx_ref}",
-            audit_type="PAYSTACK_TOPUP",
-        )
-        if not ok:
-            _ps_payment_update(tx_ref, status="FAILED", ps_reference=got_reference,
-                               error=f"credit failed: {msg}")
-            return False, f"Credit failed: {msg}", row
-
-        _ps_payment_update(tx_ref, status="COMPLETED", ps_reference=got_reference,
-                           verified_at=_now(), credited_psc=psc_amount, error="")
-        _close_partial_if_any(row["wallet_address"])
-        return True, f"Credited {psc_amount:.2f} PSC", _ps_payment_find(tx_ref)
-    except Exception as e:
-        return False, str(e), row
-
-
-@app.route("/api/psc/topup/verify_ps", methods=["POST"])
-def api_psc_topup_verify_ps():
+@app.route("/api/wallet/transfer", methods=["POST"])
+def api_wallet_transfer():
     try:
         data = request.get_json() or {}
-        tx_ref = str(data.get("tx_ref") or "").strip()
-        ps_reference = data.get("reference") or data.get("ps_reference") or tx_ref
-        if not tx_ref:
-            return jsonify({"success": False, "message": "tx_ref required"}), 400
-        ok, msg, row = _ps_verify_and_credit(tx_ref, ps_reference)
-        return jsonify({"success": ok, "message": msg, "payment": row,
-                        "gateway": "paystack"}), (200 if ok else 400)
-    except Exception as e:
-        return jsonify({"success": False, "message": str(e)}), 500
+        session_wallet = session.get("wallet", "")
+        sender_wallet = str(data.get("wallet") or session_wallet or "").strip()
 
+        if not sender_wallet:
+            return jsonify({"success": False, "message": "Wallet is required."}), 400
+        if session_wallet and sender_wallet != session_wallet:
+            return jsonify({"success": False, "message": "Wallet mismatch."}), 403
 
-@app.route("/api/psc/topup/status_ps/<tx_ref>")
-def api_psc_topup_status_ps(tx_ref):
-    row = _ps_payment_find(tx_ref)
-    if not row:
-        return jsonify({"success": False, "message": "not found"}), 404
-    return jsonify({"success": True, "payment": row, "gateway": "paystack"})
+        recipient_query = str(
+            data.get("recipient")
+            or data.get("recipient_phone")
+            or data.get("recipient_wallet")
+            or ""
+        ).strip()
+        if not recipient_query:
+            return jsonify({"success": False, "message": "recipient is required"}), 400
 
-
-@app.route("/api/psc/topup/history_ps/<address>")
-def api_psc_topup_history_ps(address):
-    rows = [r for r in _ps_payments_all() if r.get("wallet_address") == address]
-    return jsonify({"success": True, "payments": rows, "gateway": "paystack"})
-
-
-@app.route("/webhooks/paystack", methods=["POST"])
-def webhook_paystack():
-    try:
-        if not PAYSTACK_SECRET_KEY:
+        amount_psc = round(float(data.get("amount_psc") or 0), 2)
+        if amount_psc < WALLET_TRANSFER_MIN_PSC:
             return jsonify({"success": False,
-                            "message": "paystack secret not configured"}), 401
+                            "message": f"Minimum transfer is {WALLET_TRANSFER_MIN_PSC} PSC."}), 400
+        if WALLET_TRANSFER_MAX_PSC > 0 and amount_psc > WALLET_TRANSFER_MAX_PSC + 1e-9:
+            return jsonify({"success": False,
+                            "message": f"Single transfer exceeds {WALLET_TRANSFER_MAX_PSC} PSC."}), 400
+        if WALLET_TRANSFER_DAILY_MAX_PSC > 0:
+            used = _wallet_transfer_today_psc(sender_wallet)
+            if used + amount_psc > WALLET_TRANSFER_DAILY_MAX_PSC + 1e-9:
+                return jsonify({
+                    "success": False,
+                    "message": f"Daily transfer cap is {WALLET_TRANSFER_DAILY_MAX_PSC} PSC. Used {used:.2f}."}), 400
 
-        raw_body = request.get_data() or b""
-        sent_sig = request.headers.get("x-paystack-signature", "")
+        if recipient_query.upper().startswith("PSC") and len(recipient_query) >= 12:
+            recipient_client = _client_by_wallet(recipient_query)
+        else:
+            recipient_client = get_client_by_phone(recipient_query)
 
-        expected_sig = hmac.new(
-            PAYSTACK_SECRET_KEY.encode("utf-8"),
-            raw_body,
-            hashlib.sha512,
-        ).hexdigest()
+        if not recipient_client:
+            return jsonify({"success": False, "message": "Recipient not found."}), 404
 
-        if not sent_sig or not hmac.compare_digest(sent_sig, expected_sig):
-            return jsonify({"success": False, "message": "bad signature"}), 401
+        recipient_wallet = str(recipient_client.get("wallet_address", "")).strip()
+        if not recipient_wallet:
+            return jsonify({"success": False, "message": "Recipient has no wallet."}), 404
+        if recipient_wallet == sender_wallet:
+            return jsonify({"success": False, "message": "Cannot transfer to yourself."}), 400
 
-        body = json.loads(raw_body.decode("utf-8") or "{}")
-        event = str(body.get("event") or "").strip().lower()
-        d = body.get("data") or {}
+        sender_client = _client_by_wallet(sender_wallet) or {}
 
-        if event == "charge.success":
-            tx_ref = str(d.get("reference") or "").strip()
-            if not tx_ref:
-                return jsonify({"success": True, "message": "ignored"}), 200
-            _ps_verify_and_credit(tx_ref, ps_reference=tx_ref)
-            return jsonify({"success": True}), 200
+        sender_phone_in_session = session.get("verified_phone", "")
+        if sender_phone_in_session:
+            if _normalize_phone(sender_client.get("phone", "")) != _normalize_phone(sender_phone_in_session):
+                return jsonify({"success": False, "message": "Sender verification failed."}), 403
 
-        if event in ("refund.processed", "charge.reversed"):
-            tx_ref = str(d.get("reference") or "").strip()
-            row = _ps_payment_find(tx_ref)
-            if row and row.get("status") == "COMPLETED":
-                row["status"] = "REVERSED"
-                row["reversed_at"] = _now()
-                _jsave(PAYSTACK_PAYMENTS_FILE, _ps_payments_all())
-                wallet_addr = row.get("wallet_address")
-                psc = float(row.get("credited_psc") or 0)
-                if wallet_addr and psc > 0:
-                    try:
-                        deduct_wallet_psc(wallet_addr, psc)
-                    except Exception:
-                        pass
-                _admin_ledger_add({
-                    "type": "PS_REVERSAL",
-                    "wallet_address": wallet_addr,
-                    "tx_ref": tx_ref,
-                    "amount_psc": psc,
-                    "status": "REVERSED",
-                    "time": _now(),
-                })
-            return jsonify({"success": True}), 200
+        ok, msg = deduct_wallet_psc(sender_wallet, amount_psc)
+        if not ok:
+            return jsonify({"success": False, "message": msg}), 400
 
-        return jsonify({"success": True, "message": "ignored"}), 200
+        cred_ok, cred_msg, _ = _add_purchased_psc(
+            recipient_wallet, amount_psc,
+            kes_amount=round(amount_psc * PSC_TO_KES_RATE, 2),
+            payment_reference=f"P2P:{sender_wallet}",
+        )
+        if not cred_ok:
+            try:
+                _add_purchased_psc(
+                    sender_wallet, amount_psc,
+                    kes_amount=round(amount_psc * PSC_TO_KES_RATE, 2),
+                    payment_reference="P2P_ROLLBACK",
+                )
+            except Exception:
+                pass
+            return jsonify({"success": False,
+                            "message": f"Recipient credit failed: {cred_msg}"}), 500
+
+        transfer_id = "TX-" + uuid.uuid4().hex[:12]
+        _wallet_ops_add({
+            "type": "TRANSFER_OUT",
+            "transfer_id": transfer_id,
+            "wallet_address": sender_wallet,
+            "recipient_wallet": recipient_wallet,
+            "recipient_name": recipient_client.get("name", ""),
+            "amount_psc": amount_psc,
+            "amount_kes": round(amount_psc * PSC_TO_KES_RATE, 2),
+            "status": "COMPLETED",
+            "created_at": _now(),
+        })
+        _wallet_ops_add({
+            "type": "TRANSFER_IN",
+            "transfer_id": transfer_id,
+            "wallet_address": recipient_wallet,
+            "sender_wallet": sender_wallet,
+            "sender_name": sender_client.get("name", ""),
+            "amount_psc": amount_psc,
+            "amount_kes": round(amount_psc * PSC_TO_KES_RATE, 2),
+            "status": "COMPLETED",
+            "created_at": _now(),
+        })
+
+        _admin_ledger_add({
+            "type": "P2P_TRANSFER",
+            "transfer_id": transfer_id,
+            "sender_wallet": sender_wallet,
+            "recipient_wallet": recipient_wallet,
+            "amount_psc": amount_psc,
+            "amount_kes": round(amount_psc * PSC_TO_KES_RATE, 2),
+            "status": "COMPLETED",
+            "time": _now(),
+        })
+
+        sender_wallet_after = get_wallet(sender_wallet) or {}
+        return jsonify({
+            "success": True,
+            "transfer_id": transfer_id,
+            "amount_psc": amount_psc,
+            "amount_kes": round(amount_psc * PSC_TO_KES_RATE, 2),
+            "recipient": {
+                "name": recipient_client.get("name", ""),
+                "phone": recipient_client.get("phone", ""),
+                "wallet": recipient_wallet,
+            },
+            "wallet_psc_after": round(float(sender_wallet_after.get("wallet_psc", 0) or 0), 2),
+            "message": (f"Sent {amount_psc:.2f} PSC (KES {amount_psc * PSC_TO_KES_RATE:.2f}) "
+                        f"to {recipient_client.get('name', 'recipient')}."),
+        })
+    except Exception as e:
+        return jsonify({"success": False, "message": str(e)}), 500
+
+
+@app.route("/api/wallet/transfer/history/<wallet_addr>", methods=["GET"])
+def api_wallet_transfer_history(wallet_addr):
+    rows = [r for r in _wallet_ops_all()
+            if r.get("type") in ("TRANSFER_OUT", "TRANSFER_IN")
+            and r.get("wallet_address") == wallet_addr]
+    return jsonify({"success": True, "transfers": rows})
+
+
+@app.route("/api/wallet/withdraw/highvalue", methods=["POST"])
+def api_wallet_withdraw_highvalue():
+    try:
+        data = request.get_json() or {}
+        session_wallet = session.get("wallet", "")
+        wallet_addr = str(data.get("wallet") or session_wallet or "").strip()
+        if not wallet_addr:
+            return jsonify({"success": False, "message": "Wallet is required."}), 400
+        if session_wallet and wallet_addr != session_wallet:
+            return jsonify({"success": False, "message": "Wallet mismatch."}), 403
+
+        wallet = get_wallet(wallet_addr)
+        if not wallet:
+            return jsonify({"success": False, "message": "Wallet not found."}), 404
+
+        amount_psc = round(float(data.get("amount_psc") or 0), 2)
+        if amount_psc < 1:
+            return jsonify({"success": False, "message": "Minimum withdrawal is 1 PSC."}), 400
+
+        method = str(data.get("method") or "mpesa").strip().lower()
+        if method not in ("mpesa", "bank"):
+            return jsonify({"success": False, "message": "method must be mpesa or bank."}), 400
+        destination = str(data.get("destination") or "").strip()
+        bank_code   = str(data.get("bank_code") or "").strip()
+
+        client = _client_by_wallet(wallet_addr)
+        if not client:
+            return jsonify({"success": False, "message": "Wallet not linked to any client."}), 404
+
+        if method == "mpesa":
+            destination = _normalize_phone(destination) or _normalize_phone(client.get("phone", ""))
+            if not destination:
+                return jsonify({"success": False, "message": "No M-Pesa number on this account."}), 400
+        else:
+            if not destination or not bank_code:
+                return jsonify({"success": False,
+                                "message": "bank_code and destination are required."}), 400
+
+        _source = str(data.get("source") or "wallet").strip().lower()
+        if _source not in ("wallet", "savings", "deposit"):
+            _source = "wallet"
+        _pk = {"wallet": "wallet_psc",
+               "savings": "savings_psc",
+               "deposit": "deposit_psc"}[_source]
+        _plabel = {"wallet": "Spendable",
+                   "savings": "Savings",
+                   "deposit": "Deposit"}[_source]
+        available = round(float(wallet.get(_pk, 0) or 0), 2)
+        if amount_psc > available - 1.00 + 1e-9:
+            return jsonify({
+                "success": False,
+                "message": (f"At least 1.00 PSC must remain in your {_plabel} pocket. "
+                            f"Available {available:.2f} PSC. "
+                            f"Maximum withdrawable {max(0.0, available - 1.00):.2f} PSC."),
+                "wallet_psc": available,
+                "source": _source,
+                "max_withdrawable_psc": round(max(0.0, available - 1.00), 2),
+            }), 400
+
+        amount_kes = round(amount_psc * PSC_TO_KES_RATE, 2)
+        used_today = _wallet_withdraw_today_kes(wallet_addr)
+        if used_today + amount_kes > WALLET_WITHDRAW_DAILY_MAX_KES + 1e-9:
+            return jsonify({
+                "success": False,
+                "message": (f"Daily withdrawal cap is KES {WALLET_WITHDRAW_DAILY_MAX_KES:.2f}. "
+                            f"Used today: KES {used_today:.2f}. Requested: KES {amount_kes:.2f}."),
+                "daily_max_kes": WALLET_WITHDRAW_DAILY_MAX_KES,
+                "used_today_kes": used_today,
+                "remaining_today_kes": round(max(0.0, WALLET_WITHDRAW_DAILY_MAX_KES - used_today), 2),
+            }), 400
+
+        gate = _va_gate_payout(wallet_addr, client, amount_kes,
+                               method=method, destination=destination,
+                               bank_code=bank_code)
+        if not gate.get("ok"):
+            return jsonify({
+                "success": False,
+                "message": gate.get("message", "Payout blocked by compliance gate."),
+                "gate": gate.get("gate"),
+                "details": gate.get("details", {}),
+            }), gate.get("status", 403)
+
+        withdrawal_id = "WRV-" + uuid.uuid4().hex[:12]
+        ok, msg, _w = _wallet_hold_withdrawal(wallet_addr, amount_psc, withdrawal_id, source=_source)
+        if not ok:
+            return jsonify({"success": False, "message": msg}), 400
+
+        _wq_add({
+            "withdrawal_id": withdrawal_id,
+            "wallet_address": wallet_addr,
+            "amount_psc": amount_psc,
+            "amount_kes": amount_kes,
+            "method": method,
+            "destination": destination,
+            "bank_code": bank_code,
+            "source": _source,
+            "status": "PENDING_ADMIN",
+            "created_at": _now(),
+        })
+        _wallet_ops_add({
+            "type": "WITHDRAWAL_REQUEST",
+            "withdrawal_id": withdrawal_id,
+            "wallet_address": wallet_addr,
+            "amount_psc": amount_psc,
+            "amount_kes": amount_kes,
+            "method": method,
+            "destination": destination,
+            "source": _source,
+            "status": "PENDING_ADMIN",
+            "created_at": _now(),
+        })
+        _admin_ledger_add({
+            "type": "WITHDRAWAL_REQUEST_HIGHVALUE",
+            "withdrawal_id": withdrawal_id,
+            "wallet_address": wallet_addr,
+            "name": client.get("name", ""),
+            "phone": client.get("phone", ""),
+            "amount_psc": amount_psc,
+            "amount_kes": amount_kes,
+            "method": method,
+            "destination": destination,
+            "source": _source,
+            "status": "PENDING_ADMIN",
+            "time": _now(),
+        })
+
+        return jsonify({
+            "success": True,
+            "withdrawal_id": withdrawal_id,
+            "status": "PENDING_ADMIN",
+            "amount_psc": amount_psc,
+            "amount_kes": amount_kes,
+            "method": method,
+            "source": _source,
+            "daily_max_kes": WALLET_WITHDRAW_DAILY_MAX_KES,
+            "used_today_kes": used_today + amount_kes,
+            "message": (f"Withdrawal {withdrawal_id} created for KES {amount_kes:.2f}. "
+                        f"Admin confirmation is required."),
+            "ui": {
+                "title": "Withdrawal Request",
+                "status": "PENDING_ADMIN",
+                "confirm_label": "Admin: Confirm & Pay",
+            },
+        })
+    except Exception as e:
+        return jsonify({"success": False, "message": str(e)}), 500
+
+
+@app.route("/api/wallet/withdraw/daily-usage/<wallet_addr>", methods=["GET"])
+def api_wallet_withdraw_daily_usage(wallet_addr):
+    used = _wallet_withdraw_today_kes(wallet_addr)
+    return jsonify({
+        "success": True,
+        "daily_max_kes": WALLET_WITHDRAW_DAILY_MAX_KES,
+        "used_today_kes": used,
+        "remaining_today_kes": round(max(0.0, WALLET_WITHDRAW_DAILY_MAX_KES - used), 2),
+    })
+
+
+@app.route("/api/admin/wallet/withdraw/confirm", methods=["POST"])
+def api_admin_wallet_withdraw_confirm():
+    try:
+        sent = request.headers.get("X-PSC-Admin-Token", "")
+        if not PSC_ADMIN_TOKEN or not hmac.compare_digest(sent, PSC_ADMIN_TOKEN):
+            return jsonify({"success": False, "message": "forbidden"}), 403
+
+        data = request.get_json() or {}
+        wid = str(data.get("withdrawal_id") or "").strip()
+        action = str(data.get("action") or "PAID").strip().upper()
+        code = str(data.get("mpesa_code") or data.get("reference") or "").strip()
+
+        if not wid:
+            return jsonify({"success": False, "message": "withdrawal_id required"}), 400
+
+        row = _wq_find(wid)
+        if not row:
+            return jsonify({"success": False, "message": "withdrawal not found"}), 404
+        if row.get("status") in ("PAID", "REJECTED"):
+            return jsonify({"success": True, "withdrawal": row,
+                            "message": f"Already {row.get('status')}"}), 200
+
+        amount_psc = float(row.get("amount_psc") or 0)
+        amount_kes = float(row.get("amount_kes") or 0)
+        wallet_addr = row.get("wallet_address")
+
+        if action == "REJECTED":
+            _wallet_release_or_settle(wallet_addr, amount_psc, wid, "REJECTED")
+            _wq_update(wid, status="REJECTED", settled_at=_now(),
+                       admin_note=str(data.get("note") or "").strip())
+            _wallet_ops_add({
+                "type": "WITHDRAWAL_PAID",
+                "withdrawal_id": wid,
+                "wallet_address": wallet_addr,
+                "amount_psc": amount_psc,
+                "amount_kes": amount_kes,
+                "status": "REJECTED",
+                "created_at": _now(),
+            })
+            return jsonify({"success": True, "withdrawal": _wq_find(wid),
+                            "message": "Withdrawal rejected; funds returned."})
+
+        # Payment gateways removed: ALL payouts are manual.
+        _wq_update(wid, status="PAID", settled_at=_now(),
+                   mpesa_code=code, mode="manual")
+
+        _wallet_release_or_settle(wallet_addr, amount_psc, wid, "PAID")
+        _ledger_update(wid, status="PAID", settled_at=_now(),
+                       mode="manual", reference=code)
+        _audit_add({
+            "withdrawal_id": wid, "amount_kes": amount_kes,
+            "method": row.get("method"),
+            "at": _now(), "mode": "manual",
+            "result": "SUCCESS", "reference": code,
+        })
+        _wallet_ops_add({
+            "type": "WITHDRAWAL_PAID",
+            "withdrawal_id": wid,
+            "wallet_address": wallet_addr,
+            "amount_psc": amount_psc,
+            "amount_kes": amount_kes,
+            "status": "COMPLETED",
+            "created_at": _now(),
+        })
+        _record_payout_velocity(wallet_addr, amount_kes, "CONFIRMED")
+        _maybe_cbk_report(row, amount_kes)
+
+        return jsonify({"success": True, "withdrawal": _wq_find(wid),
+                        "message": "Withdrawal confirmed and settled."})
     except Exception as e:
         return jsonify({"success": False, "message": str(e)}), 500
 
 
 # ============================================================
-# END PAYSTACK GATEWAY
+# SAVINGS SUB-BALANCE
 # ============================================================
 
+WALLET_SAVINGS_ENABLED       = os.getenv("WALLET_SAVINGS_ENABLED", "1").strip() == "1"
+WALLET_SAVINGS_MIN_MOVE_PSC  = float(os.getenv("WALLET_SAVINGS_MIN_MOVE_PSC", "0.01") or 0.01)
+WALLET_SAVINGS_MIN_LEAVE_PSC = float(os.getenv("WALLET_SAVINGS_MIN_LEAVE_PSC", "1.00") or 1.00)
 
-# ---------- CATEGORY IMAGES ENDPOINT (CACHE-FIRST, BACKGROUND SCRAPE) ----------
+WALLET_SAVINGS_OPS_FILE = os.path.join(
+    os.path.dirname(PAYMENTS_FILE) or ".",
+    "wallet_savings_ops.json"
+)
+
+_WALLET_SAVINGS_LOCK = threading.Lock()
+
+
+def _savings_ops_all():
+    d = _jload(WALLET_SAVINGS_OPS_FILE, [])
+    return d if isinstance(d, list) else []
+
+
+def _savings_ops_add(row):
+    with _WALLET_SAVINGS_LOCK:
+        rows = _savings_ops_all()
+        rows.append(row)
+        _jsave(WALLET_SAVINGS_OPS_FILE, rows)
+
+
+def _savings_stats(wallet_addr):
+    rows = [r for r in _savings_ops_all() if r.get("wallet_address") == wallet_addr]
+    total_in = sum(float(r.get("amount_psc") or 0) for r in rows if r.get("direction") == "IN")
+    total_out = sum(float(r.get("amount_psc") or 0) for r in rows if r.get("direction") == "OUT")
+    return {
+        "in_psc": round(total_in, 2),
+        "out_psc": round(total_out, 2),
+        "net_psc": round(total_in - total_out, 2),
+        "events": len(rows),
+    }
+
+
+@app.route("/api/wallet/savings/<wallet_addr>", methods=["GET"])
+def api_wallet_savings_get(wallet_addr):
+    wallet = get_wallet(wallet_addr)
+    if not wallet:
+        return jsonify({"success": False, "message": "Wallet not found."}), 404
+    return jsonify({
+        "success": True,
+        "wallet": wallet_addr,
+        "savings_psc": round(float(wallet.get("savings_psc", 0) or 0), 2),
+        "savings_value_kes": round(float(wallet.get("savings_psc", 0) or 0) * PSC_TO_KES_RATE, 2),
+        "wallet_psc": round(float(wallet.get("wallet_psc", 0) or 0), 2),
+        "deposit_psc": round(float(wallet.get("deposit_psc", 0) or 0), 2),
+        "bonus_psc": round(float(wallet.get("bonus_psc", 0) or 0), 2),
+        "history": [r for r in _savings_ops_all() if r.get("wallet_address") == wallet_addr],
+        "stats": _savings_stats(wallet_addr),
+        "psc_to_kes_rate": PSC_TO_KES_RATE,
+        "enabled": WALLET_SAVINGS_ENABLED,
+        "min_move_psc": WALLET_SAVINGS_MIN_MOVE_PSC,
+        "min_leave_psc": WALLET_SAVINGS_MIN_LEAVE_PSC,
+    })
+
+
+@app.route("/api/wallet/savings/move_in", methods=["POST"])
+def api_wallet_savings_move_in():
+    if not WALLET_SAVINGS_ENABLED:
+        return jsonify({"success": False,
+                        "message": "Savings is disabled (WALLET_SAVINGS_ENABLED=0)."}), 503
+    try:
+        data = request.get_json() or {}
+        session_wallet = session.get("wallet", "")
+        wallet_addr = str(data.get("wallet") or session_wallet or "").strip()
+        if not wallet_addr:
+            return jsonify({"success": False, "message": "Wallet is required."}), 400
+        if session_wallet and wallet_addr != session_wallet:
+            return jsonify({"success": False, "message": "Wallet mismatch."}), 403
+
+        amount_psc = round(float(data.get("amount_psc") or 0), 2)
+        if amount_psc < WALLET_SAVINGS_MIN_MOVE_PSC:
+            return jsonify({"success": False,
+                            "message": f"Minimum move-in is {WALLET_SAVINGS_MIN_MOVE_PSC} PSC."}), 400
+
+        wallet = get_wallet(wallet_addr)
+        if not wallet:
+            return jsonify({"success": False, "message": "Wallet not found."}), 404
+
+        available = round(float(wallet.get("wallet_psc", 0) or 0), 2)
+        if available - amount_psc < WALLET_SAVINGS_MIN_LEAVE_PSC - 1e-9:
+            return jsonify({
+                "success": False,
+                "message": (f"At least {WALLET_SAVINGS_MIN_LEAVE_PSC:.2f} PSC must remain in your "
+                            f"spendable balance. Available: {available:.2f} PSC. "
+                            f"Maximum movable: {max(0.0, available - WALLET_SAVINGS_MIN_LEAVE_PSC):.2f} PSC."),
+                "wallet_psc": available,
+                "max_move_psc": round(max(0.0, available - WALLET_SAVINGS_MIN_LEAVE_PSC), 2),
+            }), 400
+
+        wallet["wallet_psc"] = round(available - amount_psc, 2)
+        wallet["savings_psc"] = round(float(wallet.get("savings_psc", 0) or 0) + amount_psc, 2)
+        wallet["balance"] = _wallet_total(wallet)
+        _save_wallet(wallet)
+
+        _admin_merge_wallet(
+            address=wallet_addr,
+            purchased_psc=wallet.get("wallet_psc", 0),
+            bonus_psc=wallet.get("bonus_psc", 0),
+            savings_psc=wallet.get("savings_psc", 0),
+            deposit_psc=wallet.get("deposit_psc", 0),
+        )
+        _savings_ops_add({
+            "type": "SAVINGS_MOVE_IN",
+            "direction": "IN",
+            "wallet_address": wallet_addr,
+            "amount_psc": amount_psc,
+            "amount_kes": round(amount_psc * PSC_TO_KES_RATE, 2),
+            "wallet_psc_after": wallet["wallet_psc"],
+            "savings_psc_after": wallet["savings_psc"],
+            "created_at": _now(),
+        })
+        _admin_ledger_add({
+            "type": "SAVINGS_MOVE_IN",
+            "wallet_address": wallet_addr,
+            "amount_psc": amount_psc,
+            "amount_kes": round(amount_psc * PSC_TO_KES_RATE, 2),
+            "time": _now(),
+        })
+
+        return jsonify({
+            "success": True,
+            "wallet": wallet_addr,
+            "wallet_psc": wallet["wallet_psc"],
+            "savings_psc": wallet["savings_psc"],
+            "bonus_psc": wallet["bonus_psc"],
+            "deposit_psc": wallet.get("deposit_psc", 0),
+            "balance": wallet["balance"],
+            "moved_psc": amount_psc,
+            "moved_kes": round(amount_psc * PSC_TO_KES_RATE, 2),
+            "psc_to_kes_rate": PSC_TO_KES_RATE,
+            "message": (f"Moved {amount_psc:.2f} PSC (KES {amount_psc * PSC_TO_KES_RATE:.2f}) "
+                        f"into savings."),
+        })
+    except Exception as e:
+        return jsonify({"success": False, "message": str(e)}), 500
+
+
+@app.route("/api/wallet/savings/move_out", methods=["POST"])
+def api_wallet_savings_move_out():
+    if not WALLET_SAVINGS_ENABLED:
+        return jsonify({"success": False,
+                        "message": "Savings is disabled (WALLET_SAVINGS_ENABLED=0)."}), 503
+    try:
+        data = request.get_json() or {}
+        session_wallet = session.get("wallet", "")
+        wallet_addr = str(data.get("wallet") or session_wallet or "").strip()
+        if not wallet_addr:
+            return jsonify({"success": False, "message": "Wallet is required."}), 400
+        if session_wallet and wallet_addr != session_wallet:
+            return jsonify({"success": False, "message": "Wallet mismatch."}), 403
+
+        amount_psc = round(float(data.get("amount_psc") or 0), 2)
+        if amount_psc < WALLET_SAVINGS_MIN_MOVE_PSC:
+            return jsonify({"success": False,
+                            "message": f"Minimum move-out is {WALLET_SAVINGS_MIN_MOVE_PSC} PSC."}), 400
+
+        wallet = get_wallet(wallet_addr)
+        if not wallet:
+            return jsonify({"success": False, "message": "Wallet not found."}), 404
+
+        savings = round(float(wallet.get("savings_psc", 0) or 0), 2)
+        if savings + 1e-9 < amount_psc:
+            return jsonify({
+                "success": False,
+                "message": (f"Insufficient savings. You have {savings:.2f} PSC in savings, "
+                            f"cannot move {amount_psc:.2f} PSC out."),
+                "savings_psc": savings,
+            }), 400
+
+        wallet["savings_psc"] = round(savings - amount_psc, 2)
+        wallet["wallet_psc"] = round(float(wallet.get("wallet_psc", 0) or 0) + amount_psc, 2)
+        wallet["balance"] = _wallet_total(wallet)
+        _save_wallet(wallet)
+
+        _admin_merge_wallet(
+            address=wallet_addr,
+            purchased_psc=wallet.get("wallet_psc", 0),
+            bonus_psc=wallet.get("bonus_psc", 0),
+            savings_psc=wallet.get("savings_psc", 0),
+            deposit_psc=wallet.get("deposit_psc", 0),
+        )
+        _savings_ops_add({
+            "type": "SAVINGS_MOVE_OUT",
+            "direction": "OUT",
+            "wallet_address": wallet_addr,
+            "amount_psc": amount_psc,
+            "amount_kes": round(amount_psc * PSC_TO_KES_RATE, 2),
+            "wallet_psc_after": wallet["wallet_psc"],
+            "savings_psc_after": wallet["savings_psc"],
+            "created_at": _now(),
+        })
+        _admin_ledger_add({
+            "type": "SAVINGS_MOVE_OUT",
+            "wallet_address": wallet_addr,
+            "amount_psc": amount_psc,
+            "amount_kes": round(amount_psc * PSC_TO_KES_RATE, 2),
+            "time": _now(),
+        })
+
+        return jsonify({
+            "success": True,
+            "wallet": wallet_addr,
+            "wallet_psc": wallet["wallet_psc"],
+            "savings_psc": wallet["savings_psc"],
+            "bonus_psc": wallet["bonus_psc"],
+            "deposit_psc": wallet.get("deposit_psc", 0),
+            "balance": wallet["balance"],
+            "moved_psc": amount_psc,
+            "moved_kes": round(amount_psc * PSC_TO_KES_RATE, 2),
+            "psc_to_kes_rate": PSC_TO_KES_RATE,
+            "message": (f"Moved {amount_psc:.2f} PSC (KES {amount_psc * PSC_TO_KES_RATE:.2f}) "
+                        f"back to your spendable balance."),
+        })
+    except Exception as e:
+        return jsonify({"success": False, "message": str(e)}), 500
+
+
+# ============================================================
+# DEPOSIT PSC POCKET (HOLD-ONLY)
+# ============================================================
+
+WALLET_DEPOSIT_POCKET_ENABLED     = os.getenv("WALLET_DEPOSIT_POCKET_ENABLED", "1").strip() == "1"
+WALLET_DEPOSIT_POCKET_MIN_MOVE_PSC = float(os.getenv("WALLET_DEPOSIT_POCKET_MIN_MOVE_PSC", "0.01") or 0.01)
+WALLET_DEPOSIT_POCKET_MIN_LEAVE_PSC = float(os.getenv("WALLET_DEPOSIT_POCKET_MIN_LEAVE_PSC", "1.00") or 1.00)
+
+WALLET_DEPOSIT_POCKET_OPS_FILE = os.path.join(
+    os.path.dirname(PAYMENTS_FILE) or ".",
+    "wallet_deposit_pocket_ops.json"
+)
+
+_WALLET_DEPOSIT_POCKET_LOCK = threading.Lock()
+
+
+def _deposit_pocket_ops_all():
+    d = _jload(WALLET_DEPOSIT_POCKET_OPS_FILE, [])
+    return d if isinstance(d, list) else []
+
+
+def _deposit_pocket_ops_add(row):
+    with _WALLET_DEPOSIT_POCKET_LOCK:
+        rows = _deposit_pocket_ops_all()
+        rows.append(row)
+        _jsave(WALLET_DEPOSIT_POCKET_OPS_FILE, rows)
+
+
+def _deposit_pocket_stats(wallet_addr):
+    rows = [r for r in _deposit_pocket_ops_all() if r.get("wallet_address") == wallet_addr]
+    total_in = sum(float(r.get("amount_psc") or 0) for r in rows if r.get("direction") == "IN")
+    total_out = sum(float(r.get("amount_psc") or 0) for r in rows if r.get("direction") == "OUT")
+    return {
+        "in_psc": round(total_in, 2),
+        "out_psc": round(total_out, 2),
+        "net_psc": round(total_in - total_out, 2),
+        "events": len(rows),
+    }
+
+
+@app.route("/api/wallet/deposit_pocket/<wallet_addr>", methods=["GET"])
+def api_wallet_deposit_pocket_get(wallet_addr):
+    wallet = get_wallet(wallet_addr)
+    if not wallet:
+        return jsonify({"success": False, "message": "Wallet not found."}), 404
+    return jsonify({
+        "success": True,
+        "wallet": wallet_addr,
+        "deposit_psc": round(float(wallet.get("deposit_psc", 0) or 0), 2),
+        "deposit_value_kes": round(float(wallet.get("deposit_psc", 0) or 0) * PSC_TO_KES_RATE, 2),
+        "wallet_psc": round(float(wallet.get("wallet_psc", 0) or 0), 2),
+        "savings_psc": round(float(wallet.get("savings_psc", 0) or 0), 2),
+        "bonus_psc": round(float(wallet.get("bonus_psc", 0) or 0), 2),
+        "history": [r for r in _deposit_pocket_ops_all() if r.get("wallet_address") == wallet_addr],
+        "stats": _deposit_pocket_stats(wallet_addr),
+        "psc_to_kes_rate": PSC_TO_KES_RATE,
+        "enabled": WALLET_DEPOSIT_POCKET_ENABLED,
+        "min_move_psc": WALLET_DEPOSIT_POCKET_MIN_MOVE_PSC,
+        "min_leave_psc": WALLET_DEPOSIT_POCKET_MIN_LEAVE_PSC,
+    })
+
+
+@app.route("/api/wallet/deposit/move_in", methods=["POST"])
+def api_wallet_deposit_move_in():
+    if not WALLET_DEPOSIT_POCKET_ENABLED:
+        return jsonify({"success": False,
+                        "message": "Deposit pocket is disabled (WALLET_DEPOSIT_POCKET_ENABLED=0)."}), 503
+    try:
+        data = request.get_json() or {}
+        session_wallet = session.get("wallet", "")
+        wallet_addr = str(data.get("wallet") or session_wallet or "").strip()
+        if not wallet_addr:
+            return jsonify({"success": False, "message": "Wallet is required."}), 400
+        if session_wallet and wallet_addr != session_wallet:
+            return jsonify({"success": False, "message": "Wallet mismatch."}), 403
+
+        amount_psc = round(float(data.get("amount_psc") or 0), 2)
+        if amount_psc < WALLET_DEPOSIT_POCKET_MIN_MOVE_PSC:
+            return jsonify({"success": False,
+                            "message": f"Minimum move-in is {WALLET_DEPOSIT_POCKET_MIN_MOVE_PSC} PSC."}), 400
+
+        wallet = get_wallet(wallet_addr)
+        if not wallet:
+            return jsonify({"success": False, "message": "Wallet not found."}), 404
+
+        available = round(float(wallet.get("wallet_psc", 0) or 0), 2)
+        if available - amount_psc < WALLET_DEPOSIT_POCKET_MIN_LEAVE_PSC - 1e-9:
+            return jsonify({
+                "success": False,
+                "message": (f"At least {WALLET_DEPOSIT_POCKET_MIN_LEAVE_PSC:.2f} PSC must remain in your "
+                            f"spendable balance. Available: {available:.2f} PSC. "
+                            f"Maximum movable: {max(0.0, available - WALLET_DEPOSIT_POCKET_MIN_LEAVE_PSC):.2f} PSC."),
+                "wallet_psc": available,
+                "max_move_psc": round(max(0.0, available - WALLET_DEPOSIT_POCKET_MIN_LEAVE_PSC), 2),
+            }), 400
+
+        wallet["wallet_psc"] = round(available - amount_psc, 2)
+        wallet["deposit_psc"] = round(float(wallet.get("deposit_psc", 0) or 0) + amount_psc, 2)
+        wallet["balance"] = _wallet_total(wallet)
+        _save_wallet(wallet)
+
+        _admin_merge_wallet(
+            address=wallet_addr,
+            purchased_psc=wallet.get("wallet_psc", 0),
+            bonus_psc=wallet.get("bonus_psc", 0),
+            savings_psc=wallet.get("savings_psc", 0),
+            deposit_psc=wallet.get("deposit_psc", 0),
+        )
+        _deposit_pocket_ops_add({
+            "type": "DEPOSIT_POCKET_MOVE_IN",
+            "direction": "IN",
+            "wallet_address": wallet_addr,
+            "amount_psc": amount_psc,
+            "amount_kes": round(amount_psc * PSC_TO_KES_RATE, 2),
+            "wallet_psc_after": wallet["wallet_psc"],
+            "deposit_psc_after": wallet["deposit_psc"],
+            "created_at": _now(),
+        })
+        _admin_ledger_add({
+            "type": "DEPOSIT_POCKET_MOVE_IN",
+            "wallet_address": wallet_addr,
+            "amount_psc": amount_psc,
+            "amount_kes": round(amount_psc * PSC_TO_KES_RATE, 2),
+            "time": _now(),
+        })
+
+        return jsonify({
+            "success": True,
+            "wallet": wallet_addr,
+            "wallet_psc": wallet["wallet_psc"],
+            "savings_psc": wallet["savings_psc"],
+            "deposit_psc": wallet["deposit_psc"],
+            "bonus_psc": wallet["bonus_psc"],
+            "balance": wallet["balance"],
+            "moved_psc": amount_psc,
+            "moved_kes": round(amount_psc * PSC_TO_KES_RATE, 2),
+            "psc_to_kes_rate": PSC_TO_KES_RATE,
+            "message": (f"Moved {amount_psc:.2f} PSC (KES {amount_psc * PSC_TO_KES_RATE:.2f}) "
+                        f"into the Deposit PSC pocket. It is hold-only and not spent by shopping."),
+        })
+    except Exception as e:
+        return jsonify({"success": False, "message": str(e)}), 500
+
+
+@app.route("/api/wallet/deposit/move_out", methods=["POST"])
+def api_wallet_deposit_move_out():
+    if not WALLET_DEPOSIT_POCKET_ENABLED:
+        return jsonify({"success": False,
+                        "message": "Deposit pocket is disabled (WALLET_DEPOSIT_POCKET_ENABLED=0)."}), 503
+    try:
+        data = request.get_json() or {}
+        session_wallet = session.get("wallet", "")
+        wallet_addr = str(data.get("wallet") or session_wallet or "").strip()
+        if not wallet_addr:
+            return jsonify({"success": False, "message": "Wallet is required."}), 400
+        if session_wallet and wallet_addr != session_wallet:
+            return jsonify({"success": False, "message": "Wallet mismatch."}), 403
+
+        amount_psc = round(float(data.get("amount_psc") or 0), 2)
+        if amount_psc < WALLET_DEPOSIT_POCKET_MIN_MOVE_PSC:
+            return jsonify({"success": False,
+                            "message": f"Minimum move-out is {WALLET_DEPOSIT_POCKET_MIN_MOVE_PSC} PSC."}), 400
+
+        wallet = get_wallet(wallet_addr)
+        if not wallet:
+            return jsonify({"success": False, "message": "Wallet not found."}), 404
+
+        deposit_avail = round(float(wallet.get("deposit_psc", 0) or 0), 2)
+        if deposit_avail + 1e-9 < amount_psc:
+            return jsonify({
+                "success": False,
+                "message": (f"Insufficient deposit PSC. You have {deposit_avail:.2f} PSC in the "
+                            f"deposit pocket, cannot move {amount_psc:.2f} PSC out."),
+                "deposit_psc": deposit_avail,
+            }), 400
+
+        wallet["deposit_psc"] = round(deposit_avail - amount_psc, 2)
+        wallet["wallet_psc"] = round(float(wallet.get("wallet_psc", 0) or 0) + amount_psc, 2)
+        wallet["balance"] = _wallet_total(wallet)
+        _save_wallet(wallet)
+
+        _admin_merge_wallet(
+            address=wallet_addr,
+            purchased_psc=wallet.get("wallet_psc", 0),
+            bonus_psc=wallet.get("bonus_psc", 0),
+            savings_psc=wallet.get("savings_psc", 0),
+            deposit_psc=wallet.get("deposit_psc", 0),
+        )
+        _deposit_pocket_ops_add({
+            "type": "DEPOSIT_POCKET_MOVE_OUT",
+            "direction": "OUT",
+            "wallet_address": wallet_addr,
+            "amount_psc": amount_psc,
+            "amount_kes": round(amount_psc * PSC_TO_KES_RATE, 2),
+            "wallet_psc_after": wallet["wallet_psc"],
+            "deposit_psc_after": wallet["deposit_psc"],
+            "created_at": _now(),
+        })
+        _admin_ledger_add({
+            "type": "DEPOSIT_POCKET_MOVE_OUT",
+            "wallet_address": wallet_addr,
+            "amount_psc": amount_psc,
+            "amount_kes": round(amount_psc * PSC_TO_KES_RATE, 2),
+            "time": _now(),
+        })
+
+        return jsonify({
+            "success": True,
+            "wallet": wallet_addr,
+            "wallet_psc": wallet["wallet_psc"],
+            "savings_psc": wallet["savings_psc"],
+            "deposit_psc": wallet["deposit_psc"],
+            "bonus_psc": wallet["bonus_psc"],
+            "balance": wallet["balance"],
+            "moved_psc": amount_psc,
+            "moved_kes": round(amount_psc * PSC_TO_KES_RATE, 2),
+            "psc_to_kes_rate": PSC_TO_KES_RATE,
+            "message": (f"Moved {amount_psc:.2f} PSC (KES {amount_psc * PSC_TO_KES_RATE:.2f}) "
+                        f"out of the Deposit PSC pocket into spendable balance."),
+        })
+    except Exception as e:
+        return jsonify({"success": False, "message": str(e)}), 500
+
+
+@app.route("/api/wallet/overview/<wallet_addr>", methods=["GET"])
+def api_wallet_overview(wallet_addr):
+    wallet = get_wallet(wallet_addr)
+    if not wallet:
+        return jsonify({"success": False, "message": "Wallet not found."}), 404
+
+    withdraw_used = _wallet_withdraw_today_kes(wallet_addr)
+    deposit_today = _wallet_deposit_today_kes(wallet_addr)
+    transfer_today = _wallet_transfer_today_psc(wallet_addr)
+
+    return jsonify({
+        "success": True,
+        "wallet": wallet_addr,
+        "balances": {
+            "wallet_psc": round(float(wallet.get("wallet_psc", 0) or 0), 2),
+            "savings_psc": round(float(wallet.get("savings_psc", 0) or 0), 2),
+            "deposit_psc": round(float(wallet.get("deposit_psc", 0) or 0), 2),
+            "bonus_psc": round(float(wallet.get("bonus_psc", 0) or 0), 2),
+            "daily_login_bonus_psc": round(float(wallet.get("daily_login_bonus_psc", 0) or 0), 2),
+            "held_psc": round(float(wallet.get("held_psc", 0) or 0), 2),
+            "total_psc": round(_wallet_total(wallet), 2),
+            "total_kes": round(_wallet_total(wallet) * PSC_TO_KES_RATE, 2),
+        },
+        "values_kes": {
+            "wallet_psc": round(float(wallet.get("wallet_psc", 0) or 0) * PSC_TO_KES_RATE, 2),
+            "savings_psc": round(float(wallet.get("savings_psc", 0) or 0) * PSC_TO_KES_RATE, 2),
+            "deposit_psc": round(float(wallet.get("deposit_psc", 0) or 0) * PSC_TO_KES_RATE, 2),
+            "bonus_psc": round(float(wallet.get("bonus_psc", 0) or 0) * PSC_TO_KES_RATE, 2),
+            "total_psc": round(_wallet_total(wallet) * PSC_TO_KES_RATE, 2),
+        },
+        "daily_usage": {
+            "withdraw_used_kes": withdraw_used,
+            "withdraw_max_kes": WALLET_WITHDRAW_DAILY_MAX_KES,
+            "withdraw_remaining_kes": round(max(0.0, WALLET_WITHDRAW_DAILY_MAX_KES - withdraw_used), 2),
+            "deposit_today_kes": deposit_today,
+            "deposit_max_kes": WALLET_DEPOSIT_MAX_KES,
+            "transfer_today_psc": transfer_today,
+            "transfer_daily_max_psc": WALLET_TRANSFER_DAILY_MAX_PSC,
+        },
+        "limits": {
+            "deposit_max_kes": WALLET_DEPOSIT_MAX_KES,
+            "withdraw_daily_max_kes": WALLET_WITHDRAW_DAILY_MAX_KES,
+            "transfer_min_psc": WALLET_TRANSFER_MIN_PSC,
+            "transfer_max_psc": WALLET_TRANSFER_MAX_PSC,
+            "transfer_daily_max_psc": WALLET_TRANSFER_DAILY_MAX_PSC,
+            "savings_min_move_psc": WALLET_SAVINGS_MIN_MOVE_PSC,
+            "savings_min_leave_psc": WALLET_SAVINGS_MIN_LEAVE_PSC,
+            "deposit_pocket_min_move_psc": WALLET_DEPOSIT_POCKET_MIN_MOVE_PSC,
+            "deposit_pocket_min_leave_psc": WALLET_DEPOSIT_POCKET_MIN_LEAVE_PSC,
+            "min_balance_to_shop": MIN_BALANCE_TO_SHOP,
+        },
+        "psc_to_kes_rate": PSC_TO_KES_RATE,
+        "savings_enabled": WALLET_SAVINGS_ENABLED,
+        "deposit_pocket_enabled": WALLET_DEPOSIT_POCKET_ENABLED,
+    })
+
+
+@app.route("/api/wallet/ui/<wallet_addr>", methods=["GET"])
+def api_wallet_ui(wallet_addr):
+    wallet = get_wallet(wallet_addr)
+    if not wallet:
+        return jsonify({"success": False, "message": "Wallet not found."}), 404
+
+    balances = {
+        "wallet_psc": round(float(wallet.get("wallet_psc", 0) or 0), 2),
+        "savings_psc": round(float(wallet.get("savings_psc", 0) or 0), 2),
+        "deposit_psc": round(float(wallet.get("deposit_psc", 0) or 0), 2),
+        "bonus_psc": round(float(wallet.get("bonus_psc", 0) or 0), 2),
+        "daily_login_bonus_psc": round(float(wallet.get("daily_login_bonus_psc", 0) or 0), 2),
+        "held_psc": round(float(wallet.get("held_psc", 0) or 0), 2),
+        "total_psc": round(_wallet_total(wallet), 2),
+        "total_kes": round(_wallet_total(wallet) * PSC_TO_KES_RATE, 2),
+    }
+
+    # Payment gateways removed â€” "deposit" action is intentionally omitted.
+    actions = [
+        {
+            "key": "transfer",
+            "label": "Send to another user",
+            "icon": "ðŸ“¤",
+            "endpoint": "/api/wallet/transfer",
+            "method": "POST",
+            "fields": ["recipient", "amount_psc"],
+            "min_psc": WALLET_TRANSFER_MIN_PSC,
+            "max_psc": WALLET_TRANSFER_MAX_PSC,
+            "daily_max_psc": WALLET_TRANSFER_DAILY_MAX_PSC,
+            "hint": "Recipient can be a phone number or a PSC wallet address.",
+        },
+        {
+            "key": "withdraw",
+            "label": "Withdraw to bank / M-Pesa",
+            "icon": "ðŸ“¥",
+            "endpoint": "/api/wallet/withdraw/highvalue",
+            "method": "POST",
+            "fields": ["amount_psc", "method", "destination", "bank_code"],
+            "daily_max_kes": WALLET_WITHDRAW_DAILY_MAX_KES,
+            "hint": "Admin confirmation is required before funds leave.",
+        },
+        {
+            "key": "save",
+            "label": "Move to Savings",
+            "icon": "ðŸ”’",
+            "endpoint": "/api/wallet/savings/move_in",
+            "method": "POST",
+            "fields": ["amount_psc"],
+            "min_move_psc": WALLET_SAVINGS_MIN_MOVE_PSC,
+            "min_leave_psc": WALLET_SAVINGS_MIN_LEAVE_PSC,
+            "enabled": WALLET_SAVINGS_ENABLED,
+            "hint": "Park PSC safely; savings is never touched by shopping.",
+        },
+        {
+            "key": "unsave",
+            "label": "Move back from Savings",
+            "icon": "ðŸ”“",
+            "endpoint": "/api/wallet/savings/move_out",
+            "method": "POST",
+            "fields": ["amount_psc"],
+            "min_move_psc": WALLET_SAVINGS_MIN_MOVE_PSC,
+            "enabled": WALLET_SAVINGS_ENABLED,
+            "hint": "Return PSC from savings to your spendable balance.",
+        },
+        {
+            "key": "deposit_psc_in",
+            "label": "Move to Deposit PSC",
+            "icon": "ðŸ§ ",
+            "endpoint": "/api/wallet/deposit/move_in",
+            "method": "POST",
+            "fields": ["amount_psc"],
+            "min_move_psc": WALLET_DEPOSIT_POCKET_MIN_MOVE_PSC,
+            "min_leave_psc": WALLET_DEPOSIT_POCKET_MIN_LEAVE_PSC,
+            "enabled": WALLET_DEPOSIT_POCKET_ENABLED,
+            "hint": "Hold-only pocket; never spent by shopping.",
+        },
+        {
+            "key": "deposit_psc_out",
+            "label": "Move back from Deposit PSC",
+            "icon": "ðŸ§ ",
+            "endpoint": "/api/wallet/deposit/move_out",
+            "method": "POST",
+            "fields": ["amount_psc"],
+            "min_move_psc": WALLET_DEPOSIT_POCKET_MIN_MOVE_PSC,
+            "enabled": WALLET_DEPOSIT_POCKET_ENABLED,
+            "hint": "Return PSC from deposit pocket to spendable balance.",
+        },
+        {
+            "key": "redeem_daily_bonus",
+            "label": "Redeem daily bonus",
+            "icon": "ðŸŽ",
+            "endpoint": "/api/wallet/redeem_daily_bonus",
+            "method": "POST",
+            "fields": [],
+            "hint": "Move your daily bonus into spendable balance.",
+        },
+    ]
+
+    return jsonify({
+        "success": True,
+        "wallet": wallet_addr,
+        "balances": balances,
+        "actions": actions,
+        "psc_to_kes_rate": PSC_TO_KES_RATE,
+        "currency": "KES",
+        "min_balance_to_shop": MIN_BALANCE_TO_SHOP,
+        "updated_at": _now(),
+        "payment_gateways_enabled": False,
+    })
+
+
+# ============================================================
+# CATEGORY IMAGES, VENDOR INFO, SEARCH
+# ============================================================
+
 @app.route("/api/category_images")
 def api_category_images():
-    """
-    Fast, cache-first endpoint. Never scrapes inline.
-
-    Fast path (99% of requests):
-      - Read _CATEGORY_IMAGE_CACHE or _PRODUCT_CACHE_DB.
-      - Return whatever is cached; falls back to emoji placeholders.
-      - Response time: a few milliseconds.
-
-    Slow path (cache is cold for a category):
-      - Schedule a background refresh via _background_refresh_products().
-      - Return the emoji placeholder immediately.
-      - On the next call (page auto-refreshes every 2 min), real images
-        will already be in the cache.
-
-    The actual scraping still happens â€” Jumia / Kilimall / Carrefour â€”
-    but on daemon threads, never blocking the user request.
-    """
     try:
         result = {}
 
         for cat in CATEGORY_GROUPS:
             key = cat["key"]
 
-            # -------- FAST PATH 1: category-image memo --------
             cached = _CATEGORY_IMAGE_CACHE.get(key)
             if cached and (time.time() - cached.get("ts", 0)) < _CATEGORY_IMAGE_TTL:
                 result[key] = {
@@ -4608,7 +5080,6 @@ def api_category_images():
                 }
                 continue
 
-            # -------- FAST PATH 2: product cache --------
             products = _cache_get(f"products::all::{cat['query'].lower()}") or []
             if not products:
                 products = _cache_get(f"products::{cat['query'].lower()}") or []
@@ -4641,11 +5112,6 @@ def api_category_images():
                 }
                 continue
 
-            # -------- SLOW PATH: cold cache â†’ schedule bg refresh --------
-            # Uses the same SWR function the rest of the app already uses.
-            # Spawns a daemon thread; does NOT block this request.
-            # Respects the existing _SCRAPE_LOCK, so it cannot collide
-            # with the warmer or with /api/products.
             try:
                 _background_refresh_products(
                     cat["query"],
@@ -4655,8 +5121,6 @@ def api_category_images():
             except Exception as e:
                 print(f"[CAT-IMG] background refresh schedule failed for {key}: {e}")
 
-            # Return the placeholder immediately â€” do NOT wait.
-            # -- FALLBACK 1: only a product that MATCHES this category --
             if not pick:
                 _kw = [w for w in cat["query"].lower().split() if len(w) >= 3]
                 for _p in _PRODUCT_CACHE.values():
@@ -4668,7 +5132,6 @@ def api_category_images():
                         pick = _p
                         break
 
-            # -- FALLBACK 2: seller items that MATCH the category --
             if not pick:
                 try:
                     for _it in _load_seller_items():
@@ -4694,14 +5157,12 @@ def api_category_images():
                 result[key] = {"image": _img, "name": _nm, "emoji": cat.get("emoji", "")}
                 continue
 
-            # -- FALLBACK 3: curated stock image --
             fallback_img = FALLBACK_CATEGORY_IMAGES.get(key, "")
             if fallback_img:
                 _CATEGORY_IMAGE_CACHE[key] = {"ts": time.time(), "image": fallback_img, "name": cat["label"]}
                 result[key] = {"image": fallback_img, "name": cat["label"], "emoji": cat.get("emoji", "")}
                 continue
 
-            # -- final resort: emoji only --
             result[key] = {"image": "", "name": "", "emoji": cat.get("emoji", "")}
 
         return jsonify({"success": True, "images": result,
@@ -4711,7 +5172,6 @@ def api_category_images():
         return jsonify({"success": False, "message": str(e)}), 500
 
 
-# ---------- VENDOR INFO ENDPOINT (CLIENT-SAFE STUB) ----------
 @app.route("/api/vendors")
 def api_vendors():
     return jsonify({
@@ -4721,7 +5181,6 @@ def api_vendors():
     })
 
 
-# ---------- CLIENT SEARCH (HIDES VENDORS) ----------
 @app.route("/api/search")
 def api_search():
     try:
@@ -4735,7 +5194,6 @@ def api_search():
         if limit > 1000:
             limit = 1000
 
-               # NEW: extract vendor hint before sanitizing
         vendor_hint, _ = _extract_vendor_hint(raw_q)
         q = _normalize_search_query(raw_q)
 
@@ -4747,8 +5205,6 @@ def api_search():
             }), 400
 
         products = load_products(q, vendor=vendor_hint)
-
-        products = load_products(q, vendor=None)
         _register_products(products)
         products = _tag_new(products)
         products = products[:limit]
@@ -4766,14 +5222,11 @@ def api_search():
         return jsonify({"success": False, "message": str(e), "products": []}), 500
 
 
-# ---------- ROUTES ----------
-
 @app.route("/")
 def index():
     raw_query = request.args.get("q", "").strip()
     category_key = request.args.get("category", "").strip()
 
-       # NEW: extract vendor hint from the raw query
     vendor, _ = _extract_vendor_hint(raw_query)
     query = _normalize_search_query(raw_query)
 
@@ -4819,9 +5272,6 @@ def index():
     if query:
         products = load_products(query, vendor=vendor)
 
-        # If the exact query returned nothing, retry with just the first
-        # word. Example: "iphone 18" -> "iphone". Prevents fallback for
-        # specific model-year searches that no vendor stocks.
         if not products and query and " " in query:
             broader = query.split()[0]
             if broader and broader.lower() != query.lower():
@@ -4893,8 +5343,6 @@ def index():
         user=user,
     )
 
-
-# ---------- ACCOUNT (REGISTER / LOGIN) ----------
 
 @app.route("/api/account/register", methods=["POST"])
 def api_account_register():
@@ -5098,8 +5546,6 @@ def api_account_me():
     })
 
 
-# ---------- WALLET ----------
-
 @app.route("/api/wallet/auto_create", methods=["POST"])
 def api_auto_create_wallet():
     wallet = create_client_wallet()
@@ -5120,13 +5566,14 @@ def api_auto_create_wallet():
 
 @app.route("/api/wallet/purchase", methods=["POST"])
 def api_wallet_purchase():
+    """Admin-only PSC credit (no external payment gateway)."""
     sent = request.headers.get("X-PSC-Admin-Token", "")
     if not PSC_ADMIN_TOKEN or not hmac.compare_digest(sent, PSC_ADMIN_TOKEN):
         return jsonify({
             "success": False,
             "message": ("This endpoint is for the admin wallet system only. "
-                        "Use 'Buy PSC' on the shop page to top up through "
-                        "Flutterwave, or have the admin credit your account.")
+                        "Payment gateways are disabled. Ask the admin to "
+                        "credit your account or receive P2P transfers.")
         }), 403
 
     try:
@@ -5147,8 +5594,6 @@ def api_wallet_purchase():
             return jsonify({"success": False, "message": "Purchase amount is too small to purchase PSC."})
 
         payment_reference = str(data.get("payment_reference", "")).strip()
-
-        # ADDITIVE (Option C): allow admin to specify target too.
         _target = _normalize_credit_target(data.get("target") or "spendable")
 
         ok, msg, wallet = _add_psc_to_target(
@@ -5162,7 +5607,7 @@ def api_wallet_purchase():
 
         return jsonify({
             "success": True,
-            "message": f"Purchased {psc_amount:.2f} PSC for KES {kes_amount:.2f}.",
+            "message": f"Credited {psc_amount:.2f} PSC for KES {kes_amount:.2f}.",
             "wallet": wallet["address"],
             "purchased_psc": psc_amount,
             "wallet_psc": wallet["wallet_psc"],
@@ -5298,7 +5743,7 @@ def api_wallet_purchase_request():
             "amount_psc": psc_amount,
             "psc_to_kes_rate": PSC_TO_KES_RATE,
             "message": (f"Purchase request {request_id} sent to admin. "
-                        f"You will be credited {psc_amount:.2f} PSC."),
+                        f"You will be credited {psc_amount:.2f} PSC manually."),
         })
     except Exception as e:
         return jsonify({"success": False, "message": str(e)}), 500
@@ -5802,17 +6247,7 @@ def api_checkout_partial_pay():
         return jsonify({"success": False, "message": str(e)}), 500
 
 
-# ---------- CHECKOUT PAYMENT LOGIC ----------
-
 def calculate_checkout_payment(wallet, gross_psc, total_client_kes, payment_source="auto"):
-    """
-    Controlled checkout accounting:
-      * Bonus PSC = discount only.
-      * wallet_psc = purchased/spendable payment balance.
-      * savings_psc = payment balance only when Savings is explicitly selected.
-      * deposit_psc = never used for shopping.
-      * auto/bonus uses wallet_psc for payment and applies the Bonus discount.
-    """
     gross_psc = round(float(gross_psc), 2)
     total_client_kes = round(float(total_client_kes), 2)
 
@@ -5868,8 +6303,6 @@ def calculate_checkout_payment(wallet, gross_psc, total_client_kes, payment_sour
         "min_balance_to_shop": MIN_BALANCE_TO_SHOP,
     }
 
-    # Minimum shopping balance applies to the actual payment pocket, not the
-    # Bonus pocket. Bonus PSC is a discount instrument, never payment money.
     if source_available < MIN_BALANCE_TO_SHOP - 1e-9:
         base.update({
             "ok": False,
@@ -5926,7 +6359,6 @@ _CHECKOUT_PAYMENT_LOCK = threading.RLock()
 
 
 def apply_checkout_payment(wallet_addr, payment):
-    """Apply only the payment pocket selected by calculate_checkout_payment."""
     if not payment.get("ok"):
         return False, payment.get("message", "Checkout payment failed.")
 
@@ -5944,7 +6376,6 @@ def apply_checkout_payment(wallet_addr, payment):
 
 
 def rollback_checkout_payment(wallet_addr, payment):
-    """Restore a checkout deduction if order persistence fails."""
     if not payment or not payment.get("ok"):
         return False
 
@@ -5981,8 +6412,6 @@ def rollback_checkout_payment(wallet_addr, payment):
     )
     return True
 
-
-# ---------- CHECKOUT PREVIEW ----------
 
 @app.route("/api/checkout_preview", methods=["POST"])
 def api_checkout_preview():
@@ -6100,8 +6529,6 @@ def api_checkout_preview():
     except Exception as e:
         return jsonify({"success": False, "message": str(e)}), 500
 
-
-# ---------- ORDERS ----------
 
 @app.route("/order_form")
 def order_form():
@@ -6266,8 +6693,6 @@ def order_success():
     return render_template("order_success.html")
 
 
-# ---------- LIVE PRODUCTS FEED (CLIENT-SAFE) ----------
-
 @app.route("/api/products")
 def api_products():
     try:
@@ -6275,7 +6700,6 @@ def api_products():
         cat_key = request.args.get("category", "").strip()
         light = request.args.get("light", "") == "1"
 
-        # ADDITIVE: extract vendor hint so masoko:phone etc force the vendor
         vendor_hint, _ = _extract_vendor_hint(raw_q)
         q = _normalize_search_query(raw_q)
 
@@ -6311,8 +6735,6 @@ def api_products():
         return jsonify({"success": False, "message": str(e)}), 500
 
 
-# ---------- CACHE ADMIN ----------
-
 @app.route("/api/cache/clear", methods=["POST", "GET"])
 def api_cache_clear():
     _cache_clear()
@@ -6324,8 +6746,6 @@ def api_cache_clear():
         pass
     return jsonify({"success": True, "message": "Cache cleared."})
 
-
-# ---------- ADDITIVE: EXPLICIT BACKGROUND REFRESH ----------
 
 @app.route("/api/cache/refresh", methods=["POST", "GET"])
 def api_cache_refresh():
@@ -6343,8 +6763,6 @@ def api_cache_refresh():
         "categories": started,
     })
 
-
-# ---------- CART CHECKOUT ----------
 
 @app.route("/cart_checkout")
 def cart_checkout():
@@ -6522,4172 +6940,23 @@ def api_place_multi_order():
 
 
 # ============================================================
-# VIRTUAL ACCOUNT (VA) + COMPLIANCE LAYER â€” FULLY ADDITIVE
+# PAYMENTS GATEWAYS ENDPOINT (stub returning empty list)
 # ============================================================
 
-VA_ENABLED               = os.getenv("VA_ENABLED", "0").strip() == "1"
-VA_COUNTRY               = os.getenv("VA_COUNTRY", "KE").strip().upper()
-VA_CURRENCY              = os.getenv("VA_CURRENCY", "KES").strip().upper()
-VA_MIN_KES               = float(os.getenv("VA_MIN_KES", "10") or 10)
-VA_MAX_KES               = float(os.getenv("VA_MAX_KES", "150000") or 150000)
-VA_DAILY_MAX_KES         = float(os.getenv("VA_DAILY_MAX_KES", "300000") or 300000)
-VA_LIFETIME_MAX_KES      = float(os.getenv("VA_LIFETIME_MAX_KES", "2000000") or 2000000)
-VA_MAX_PER_DAY           = int(os.getenv("VA_MAX_PER_DAY", "20") or 20)
-VA_EXPIRY_DAYS           = int(os.getenv("VA_EXPIRY_DAYS", "3650") or 3650)
-
-KYC_REQUIRED             = os.getenv("KYC_REQUIRED", "1").strip() == "1"
-KYC_ALLOWED_ID_TYPES     = [x.strip().lower() for x in
-                            os.getenv("KYC_ALLOWED_ID_TYPES",
-                                      "national_id,passport,drivers_license,huduma_namba,bvn,nin").split(",")
-                            if x.strip()]
-KYC_MIN_AGE              = int(os.getenv("KYC_MIN_AGE", "18") or 18)
-
-PAYOUT_VELOCITY_MAX_PER_WEEK = int(os.getenv("PAYOUT_VELOCITY_MAX_PER_WEEK", "10") or 10)
-PAYOUT_VELOCITY_MAX_PER_DAY  = int(os.getenv("PAYOUT_VELOCITY_MAX_PER_DAY", "3") or 3)
-
-CBK_REPORT_THRESHOLD_KES = float(os.getenv("CBK_REPORT_THRESHOLD_KES", "1000000") or 1000000)
-KRA_WHT_THRESHOLD_KES    = float(os.getenv("KRA_WHT_THRESHOLD_KES", "24000") or 24000)
-
-VA_DIR = os.path.dirname(CLIENTS_FILE) or "."
-VA_FILE              = os.path.join(VA_DIR, "virtual_accounts.json")
-VA_CREDITS_FILE      = os.path.join(VA_DIR, "va_credits.json")
-VA_AUDIT_FILE        = os.path.join(VA_DIR, "va_audit.json")
-KYC_FILE             = os.path.join(VA_DIR, "kyc_records.json")
-COMPLIANCE_FILE      = os.path.join(VA_DIR, "compliance_flags.json")
-VELOCITY_FILE        = os.path.join(VA_DIR, "payout_velocity.json")
-CBK_REPORT_FILE      = os.path.join(VA_DIR, "cbk_reports.json")
-BANK_CACHE_FILE      = os.path.join(VA_DIR, "bank_list_cache.json")
-SANCTIONS_FILE       = os.path.join(VA_DIR, "sanctions_blocklist.txt")
-
-_SANCTIONS_INLINE = set(
-    x.strip().lower() for x in
-    os.getenv("SANCTIONS_BLOCKLIST", "").split(",") if x.strip()
-)
-
-_VA_LOCK = threading.Lock()
-_BANK_CACHE_LOCK = threading.Lock()
-_BANK_CACHE_TTL = 86400
-
-
-def _va_load(path, default):
-    return _jload(path, default)
-
-
-# === FIX #A ===
-# Original code had two definitions of _va_save: one taking (path, data)
-# and one taking (d). The second silently shadowed the first, causing
-# infinite recursion on any _va_save(VA_FILE, d) style call. We keep the
-# two-argument helper under a distinct name, _va_write, and leave the
-# one-argument _va_save(d) below unchanged. All two-arg call sites in this
-# file now use _va_write.
-def _va_write(path, data):
-    _jsave(path, data)
-
-
-def _fetch_bank_list(force=False):
-    cached = _va_load(BANK_CACHE_FILE, {})
-    now = time.time()
-    if (not force) and cached and (now - float(cached.get("ts") or 0)) < _BANK_CACHE_TTL:
-        return cached.get("banks") or []
-
-    if not FLW_SECRET_KEY:
-        return cached.get("banks") or []
-
-    try:
-        r = _http.get(f"{FLW_BASE_URL}/banks/{VA_COUNTRY}",
-                      headers=_flw_headers(), timeout=20)
-        resp = r.json() if r.content else {}
-        if r.status_code < 300 and resp.get("status") == "success":
-            banks = resp.get("data") or []
-            with _BANK_CACHE_LOCK:
-                _va_write(BANK_CACHE_FILE, {"ts": now, "country": VA_COUNTRY, "banks": banks})
-            return banks
-    except Exception as e:
-        print(f"[VA BANKLIST] fetch failed: {e}")
-    return cached.get("banks") or []
-
-
-def _bank_code_valid(code):
-    code = str(code or "").strip()
-    if not code:
-        return False
-    banks = _fetch_bank_list()
-    if not banks:
-        return True
-    return any(str(b.get("code", "")).strip() == code for b in banks)
-
-
-@app.route("/api/banks/KE", methods=["GET"])
-def api_banks_ke():
-    banks = _fetch_bank_list(force=("refresh" in request.args))
+@app.route("/api/payments/gateways", methods=["GET"])
+def api_payments_gateways():
+    """Payment gateways have been disabled. Returns empty list."""
     return jsonify({
         "success": True,
-        "country": VA_COUNTRY,
-        "banks": banks,
-        "cached_at": _va_load(BANK_CACHE_FILE, {}).get("ts"),
-    })
-
-
-def _resolve_account(bank_code, account_number):
-    bank_code = str(bank_code or "").strip()
-    account_number = str(account_number or "").strip()
-    if not bank_code or not account_number:
-        return {"ok": False, "message": "bank_code and account_number required."}
-    if not FLW_SECRET_KEY:
-        return {"ok": False, "message": "Flutterwave keys not configured."}
-    try:
-        payload = {"account_number": account_number, "account_bank": bank_code}
-        r = _http.post(f"{FLW_BASE_URL}/accounts/resolve", json=payload,
-                       headers=_flw_headers(), timeout=20)
-        resp = r.json() if r.content else {}
-        if r.status_code < 300 and resp.get("status") == "success":
-            data = resp.get("data") or {}
-            return {
-                "ok": True,
-                "account_name": str(data.get("account_name") or "").strip(),
-                "account_number": str(data.get("account_number") or account_number),
-                "bank_code": bank_code,
-            }
-        return {"ok": False, "message": str(resp.get("message") or "Resolve failed")}
-    except Exception as e:
-        return {"ok": False, "message": str(e)}
-
-
-@app.route("/api/payout/resolve", methods=["POST"])
-def api_payout_resolve():
-    data = request.get_json() or {}
-    bank_code = str(data.get("bank_code") or "").strip()
-    account_number = str(data.get("account_number") or "").strip()
-
-    if not _bank_code_valid(bank_code):
-        return jsonify({"success": False, "message": "Unknown bank_code."}), 400
-
-    res = _resolve_account(bank_code, account_number)
-    if not res.get("ok"):
-        return jsonify({"success": False, "message": res.get("message")}), 502
-    return jsonify({"success": True, "data": res})
-
-
-def _kyc_all():
-    d = _va_load(KYC_FILE, {})
-    return d if isinstance(d, dict) else {}
-
-
-def _kyc_save(d):
-    _va_write(KYC_FILE, d)
-
-
-def _kyc_get(wallet_addr):
-    return _kyc_all().get(wallet_addr)
-
-
-def _kyc_upsert(wallet_addr, record):
-    d = _kyc_all()
-    d[wallet_addr] = record
-    _kyc_save(d)
-
-
-def _kyc_age_from_dob(dob_str):
-    try:
-        dob = datetime.strptime(str(dob_str).strip(), "%Y-%m-%d")
-    except Exception:
-        return None
-    today = datetime.now()
-    years = today.year - dob.year - ((today.month, today.day) < (dob.month, dob.day))
-    return years
-
-
-def _compliance_flags_all():
-    d = _va_load(COMPLIANCE_FILE, [])
-    return d if isinstance(d, list) else []
-
-
-def _compliance_flag_add(row):
-    rows = _compliance_flags_all()
-    rows.append(row)
-    _va_write(COMPLIANCE_FILE, rows)
-
-
-def _sanctions_blocklist():
-    names = set(_SANCTIONS_INLINE)
-    try:
-        if os.path.exists(SANCTIONS_FILE):
-            with open(SANCTIONS_FILE, "r", encoding="utf-8") as f:
-                for line in f:
-                    s = line.strip().lower()
-                    if s and not s.startswith("#"):
-                        names.add(s)
-    except Exception:
-        pass
-    return names
-
-
-def _name_in_sanctions(name):
-    n = str(name or "").strip().lower()
-    if not n:
-        return False
-    for entry in _sanctions_blocklist():
-        if entry and entry in n:
-            return True
-    return False
-
-
-def _id_already_used(id_type, id_number, except_wallet=None):
-    id_type = str(id_type or "").strip().lower()
-    id_number = str(id_number or "").strip().lower()
-    if not id_type or not id_number:
-        return False
-    for wallet, rec in _kyc_all().items():
-        if except_wallet and wallet == except_wallet:
-            continue
-        if (str(rec.get("id_type", "")).strip().lower() == id_type and
-                str(rec.get("id_number", "")).strip().lower() == id_number):
-            return True
-    return False
-
-
-@app.route("/api/kyc/submit", methods=["POST"])
-def api_kyc_submit():
-    try:
-        data = request.get_json() or {}
-        session_wallet = session.get("wallet", "")
-        wallet_addr = str(data.get("wallet") or session_wallet or "").strip()
-
-        if not wallet_addr:
-            return jsonify({"success": False, "message": "Wallet is required."}), 400
-        if session_wallet and wallet_addr != session_wallet:
-            return jsonify({"success": False, "message": "Wallet mismatch."}), 403
-
-        client = _client_by_wallet(wallet_addr)
-        if not client:
-            return jsonify({"success": False, "message": "Wallet not linked to any client."}), 404
-
-        full_name   = str(data.get("full_name") or client.get("name") or "").strip()
-        phone       = _normalize_phone(data.get("phone") or client.get("phone") or "")
-        dob         = str(data.get("dob") or "").strip()
-        id_type     = str(data.get("id_type") or "").strip().lower()
-        id_number   = str(data.get("id_number") or "").strip()
-        address     = str(data.get("address") or client.get("address") or "").strip()
-
-        # === KYC_MATCH_ENFORCEMENT (ADDITIVE) ===
-        registered_phone = _normalize_phone(client.get("phone", ""))
-        if registered_phone and phone and phone != registered_phone:
-            return jsonify({
-                "success": False,
-                "status": "REJECTED_PHONE_MISMATCH",
-                "message": ("The phone number you entered does not match the phone "
-                            "on this account. Use the phone you registered with."),
-            }), 400
-
-        registered_name = str(client.get("name") or "").strip().lower()
-        given_name      = str(full_name or "").strip().lower()
-        if registered_name and given_name:
-            reg_tokens   = {w for w in registered_name.split() if len(w) >= 3}
-            given_tokens = {w for w in given_name.split()    if len(w) >= 3}
-            if reg_tokens and not (reg_tokens & given_tokens):
-                _compliance_flag_add({
-                    "at": _now(), "wallet": wallet_addr,
-                    "type": "KYC_NAME_MISMATCH",
-                    "registered": registered_name,
-                    "submitted":  given_name,
-                })
-                return jsonify({
-                    "success": False,
-                    "status": "REJECTED_NAME_MISMATCH",
-                    "message": ("The name you entered does not match the name on "
-                                "this account. Use the name you registered with."),
-                }), 400
-        # === END KYC_MATCH_ENFORCEMENT ===
-
-        errors = []
-        if len(full_name) < 3:
-            errors.append("full_name too short")
-        if not phone or len(phone) < 9:
-            errors.append("phone invalid")
-        if not dob:
-            errors.append("dob required")
-        else:
-            age = _kyc_age_from_dob(dob)
-            if age is None:
-                errors.append("dob must be YYYY-MM-DD")
-            elif age < KYC_MIN_AGE:
-                errors.append(f"must be at least {KYC_MIN_AGE} years old")
-        if id_type not in KYC_ALLOWED_ID_TYPES:
-            errors.append(f"id_type must be one of {KYC_ALLOWED_ID_TYPES}")
-        if not id_number or len(id_number) < 5:
-            errors.append("id_number invalid")
-
-        if errors:
-            return jsonify({"success": False, "message": "; ".join(errors)}), 400
-
-        sanctions_hit = _name_in_sanctions(full_name)
-        duplicate_id  = _id_already_used(id_type, id_number, except_wallet=wallet_addr)
-
-        status = "VERIFIED"
-        if sanctions_hit:
-            status = "REJECTED_SANCTIONS"
-            _compliance_flag_add({
-                "at": _now(), "wallet": wallet_addr,
-                "type": "SANCTIONS_HIT", "name": full_name,
-                "detail": "KYC name matched blocklist",
-            })
-        elif duplicate_id:
-            status = "REJECTED_DUPLICATE_ID"
-            _compliance_flag_add({
-                "at": _now(), "wallet": wallet_addr,
-                "type": "DUPLICATE_ID",
-                "detail": f"{id_type}:{id_number} already used",
-            })
-
-        record = {
-            "wallet_address": wallet_addr,
-            "full_name": full_name,
-            "phone": phone,
-            "dob": dob,
-            "id_type": id_type,
-            "id_number_masked": ("*" * max(0, len(id_number) - 4)) + id_number[-4:],
-            "id_number_hash": hashlib.sha256(id_number.encode("utf-8")).hexdigest(),
-            "id_number": id_number,
-            "address": address,
-            "status": status,
-            "submitted_at": _now(),
-            "reviewed_at": _now(),
-        }
-        _kyc_upsert(wallet_addr, record)
-        _admin_ledger_add({
-            "type": "KYC_SUBMIT",
-            "wallet_address": wallet_addr,
-            "status": status,
-            "time": _now(),
-        })
-
-        return jsonify({
-            "success": status == "VERIFIED",
-            "status": status,
-            "message": ("KYC verified." if status == "VERIFIED"
-                        else f"KYC rejected: {status}"),
-            "record": {
-                "full_name": full_name, "status": status,
-                "id_type": id_type, "id_number_masked": record["id_number_masked"],
-            },
-        }), (200 if status == "VERIFIED" else 400)
-    except Exception as e:
-        return jsonify({"success": False, "message": str(e)}), 500
-
-
-@app.route("/api/kyc/status", methods=["GET", "POST"])
-def api_kyc_status():
-    data = request.get_json(silent=True) or {}
-    session_wallet = session.get("wallet", "")
-    wallet_addr = str(data.get("wallet") or request.args.get("wallet") or session_wallet or "").strip()
-    if not wallet_addr:
-        return jsonify({"success": False, "message": "Wallet is required."}), 400
-    rec = _kyc_get(wallet_addr)
-    if not rec:
-        return jsonify({"success": True, "kyc_status": "NOT_SUBMITTED"})
-    return jsonify({
-        "success": True,
-        "kyc_status": rec.get("status", "UNKNOWN"),
-        "full_name": rec.get("full_name", ""),
-        "id_type": rec.get("id_type", ""),
-        "id_number_masked": rec.get("id_number_masked", ""),
-        "submitted_at": rec.get("submitted_at", ""),
-    })
-
-
-def _va_all():
-    d = _va_load(VA_FILE, {})
-    return d if isinstance(d, dict) else {}
-
-
-def _va_save(d):
-    _va_write(VA_FILE, d)
-
-
-def _va_get(wallet_addr):
-    return _va_all().get(wallet_addr)
-
-
-def _va_audit(row):
-    rows = _va_load(VA_AUDIT_FILE, [])
-    if not isinstance(rows, list):
-        rows = []
-    rows.append(row)
-    _va_write(VA_AUDIT_FILE, rows)
-
-
-def _va_credits_all():
-    rows = _va_load(VA_CREDITS_FILE, [])
-    return rows if isinstance(rows, list) else []
-
-
-def _va_credit_find(tx_ref):
-    for r in _va_credits_all():
-        if r.get("tx_ref") == tx_ref:
-            return r
-    return None
-
-
-def _va_credit_add(row):
-    rows = _va_credits_all()
-    rows.append(row)
-    _va_write(VA_CREDITS_FILE, rows)
-
-
-def _va_credit_update(tx_ref, **fields):
-    rows = _va_credits_all()
-    for r in rows:
-        if r.get("tx_ref") == tx_ref:
-            r.update(fields)
-            _va_write(VA_CREDITS_FILE, rows)
-            return r
-    return None
-
-
-def _va_inflow_today_kes(wallet_addr):
-    today = datetime.now().strftime("%Y-%m-%d")
-    total = 0.0
-    count = 0
-    for r in _va_credits_all():
-        if r.get("wallet_address") != wallet_addr:
-            continue
-        if r.get("status") != "COMPLETED":
-            continue
-        if str(r.get("created_at", "")).startswith(today):
-            total += float(r.get("amount_kes") or 0)
-            count += 1
-    return round(total, 2), count
-
-
-def _va_inflow_lifetime_kes(wallet_addr):
-    total = 0.0
-    for r in _va_credits_all():
-        if r.get("wallet_address") != wallet_addr:
-            continue
-        if r.get("status") != "COMPLETED":
-            continue
-        total += float(r.get("amount_kes") or 0)
-    return round(total, 2)
-
-
-def _va_check_inflow_limits(wallet_addr, amount_kes):
-    if amount_kes < VA_MIN_KES:
-        return False, f"Amount below minimum KES {VA_MIN_KES:.2f}."
-    if amount_kes > VA_MAX_KES:
-        return False, f"Amount above per-transaction cap KES {VA_MAX_KES:.2f}."
-    today_kes, today_count = _va_inflow_today_kes(wallet_addr)
-    if today_count + 1 > VA_MAX_PER_DAY:
-        return False, f"Daily VA credit count exceeded ({VA_MAX_PER_DAY})."
-    if today_kes + amount_kes > VA_DAILY_MAX_KES:
-        return False, f"Would exceed today's VA inflow cap KES {VA_DAILY_MAX_KES:.2f}."
-    lifetime = _va_inflow_lifetime_kes(wallet_addr)
-    if lifetime + amount_kes > VA_LIFETIME_MAX_KES:
-        return False, f"Would exceed lifetime VA inflow cap KES {VA_LIFETIME_MAX_KES:.2f}."
-    return True, "OK"
-
-
-@app.route("/api/va/create", methods=["POST"])
-def api_va_create():
-    if not VA_ENABLED:
-        return jsonify({
-            "success": False,
-            "message": "Virtual Accounts are disabled (VA_ENABLED=0).",
-        }), 503
-    if not FLW_SECRET_KEY:
-        return jsonify({"success": False, "message": "Flutterwave keys missing."}), 500
-
-    try:
-        data = request.get_json() or {}
-        session_wallet = session.get("wallet", "")
-        wallet_addr = str(data.get("wallet") or session_wallet or "").strip()
-
-        if not wallet_addr:
-            return jsonify({"success": False, "message": "Wallet is required."}), 400
-        if session_wallet and wallet_addr != session_wallet:
-            return jsonify({"success": False, "message": "Wallet mismatch."}), 403
-
-        existing = _va_get(wallet_addr)
-        if existing and existing.get("status") == "ACTIVE":
-            return jsonify({
-                "success": True,
-                "message": "Virtual account already exists.",
-                "va": existing,
-            })
-
-        if KYC_REQUIRED:
-            kyc = _kyc_get(wallet_addr)
-            if not kyc or kyc.get("status") != "VERIFIED":
-                return jsonify({
-                    "success": False,
-                    "message": "KYC must be verified before VA issuance.",
-                    "kyc_status": (kyc or {}).get("status", "NOT_SUBMITTED"),
-                }), 403
-            full_name = kyc.get("full_name")
-            phone     = kyc.get("phone")
-            id_number = kyc.get("id_number")
-            id_type   = kyc.get("id_type")
-            dob       = kyc.get("dob")
-        else:
-            client = _client_by_wallet(wallet_addr) or {}
-            full_name = client.get("name") or "PSC Customer"
-            phone     = _normalize_phone(client.get("phone") or "")
-            id_number = ""
-            id_type   = ""
-            dob       = ""
-
-        if _name_in_sanctions(full_name):
-            _compliance_flag_add({
-                "at": _now(), "wallet": wallet_addr,
-                "type": "SANCTIONS_HIT_VA", "name": full_name,
-            })
-            return jsonify({"success": False, "message": "Sanctions screen failed."}), 403
-
-        try:
-            payload = {
-                "email": (data.get("email") or "customer@example.com"),
-                "is_permanent": True,
-                "bvn": id_number if VA_COUNTRY == "NG" else None,
-                "phonenumber": phone or "",
-                "firstname": str(full_name).split(" ")[0][:32] if full_name else "PSC",
-                "lastname": (" ".join(str(full_name).split(" ")[1:]) or "Customer")[:32],
-                "narration": f"PSC VA for {wallet_addr}",
-            }
-            payload = {k: v for k, v in payload.items() if v is not None}
-
-            r = _http.post(f"{FLW_BASE_URL}/virtual-account-numbers",
-                           json=payload, headers=_flw_headers(), timeout=25)
-            resp = r.json() if r.content else {}
-            if r.status_code >= 300 or resp.get("status") != "success":
-                return jsonify({
-                    "success": False,
-                    "message": str(resp.get("message") or "Flutterwave VA creation failed"),
-                }), 502
-
-            vdata = resp.get("data") or {}
-            va_record = {
-                "wallet_address": wallet_addr,
-                "va_id": str(vdata.get("id") or vdata.get("order_ref") or ""),
-                "account_number": str(vdata.get("account_number") or ""),
-                "bank_name": str(vdata.get("bank_name") or ""),
-                "account_name": str(vdata.get("account_name") or full_name),
-                "country": VA_COUNTRY,
-                "currency": VA_CURRENCY,
-                "status": "ACTIVE",
-                "created_at": _now(),
-                "expires_at": (datetime.now() + timedelta(days=VA_EXPIRY_DAYS)).strftime("%Y-%m-%d %H:%M:%S"),
-                "kyc_snapshot": {
-                    "full_name": full_name, "id_type": id_type,
-                    "id_number_masked": ("*" * max(0, len(id_number) - 4) + id_number[-4:]) if id_number else "",
-                    "dob": dob, "phone": phone,
-                },
-            }
-            d = _va_all()
-            d[wallet_addr] = va_record
-            _va_save(d)
-
-            _va_audit({
-                "at": _now(), "wallet": wallet_addr,
-                "action": "VA_CREATED",
-                "va_id": va_record["va_id"],
-                "account_number": va_record["account_number"],
-                "bank_name": va_record["bank_name"],
-            })
-
-            return jsonify({"success": True, "va": va_record,
-                            "message": "Virtual account created."})
-        except Exception as e:
-            return jsonify({"success": False, "message": str(e)}), 500
-    except Exception as e:
-        return jsonify({"success": False, "message": str(e)}), 500
-
-
-@app.route("/api/va/status", methods=["GET", "POST"])
-def api_va_status():
-    data = request.get_json(silent=True) or {}
-    session_wallet = session.get("wallet", "")
-    wallet_addr = str(data.get("wallet") or request.args.get("wallet") or session_wallet or "").strip()
-    if not wallet_addr:
-        return jsonify({"success": False, "message": "Wallet is required."}), 400
-    va = _va_get(wallet_addr)
-    if not va:
-        return jsonify({"success": True, "va_status": "NOT_CREATED"})
-    return jsonify({"success": True, "va_status": va.get("status"), "va": va})
-
-
-@app.route("/api/va/close", methods=["POST"])
-def api_va_close():
-    try:
-        data = request.get_json() or {}
-        session_wallet = session.get("wallet", "")
-        wallet_addr = str(data.get("wallet") or session_wallet or "").strip()
-        if not wallet_addr:
-            return jsonify({"success": False, "message": "Wallet is required."}), 400
-        if session_wallet and wallet_addr != session_wallet:
-            return jsonify({"success": False, "message": "Wallet mismatch."}), 403
-
-        d = _va_all()
-        va = d.get(wallet_addr)
-        if not va:
-            return jsonify({"success": False, "message": "No VA found."}), 404
-        if va.get("status") != "ACTIVE":
-            return jsonify({"success": True, "va": va,
-                            "message": f"Already {va.get('status')}"})
-
-        pending = [r for r in _va_credits_all()
-                   if r.get("wallet_address") == wallet_addr and r.get("status") == "PENDING"]
-        if pending:
-            return jsonify({
-                "success": False,
-                "message": f"{len(pending)} pending VA credit(s). Try later.",
-            }), 409
-
-        va["status"] = "CLOSED"
-        va["closed_at"] = _now()
-        d[wallet_addr] = va
-        _va_save(d)
-
-        _va_audit({"at": _now(), "wallet": wallet_addr,
-                   "action": "VA_CLOSED", "va_id": va.get("va_id")})
-        return jsonify({"success": True, "va": va, "message": "VA closed."})
-    except Exception as e:
-        return jsonify({"success": False, "message": str(e)}), 500
-
-
-def _credit_wallet_from_va(wallet_addr, amount_kes, tx_ref, sender_name,
-                           sender_bank, narration=""):
-    existing = _va_credit_find(tx_ref)
-    if existing and existing.get("status") == "COMPLETED":
-        return True, "already-credited", existing
-
-    ok, msg = _va_check_inflow_limits(wallet_addr, amount_kes)
-    if not ok:
-        _va_credit_add({
-            "tx_ref": tx_ref, "wallet_address": wallet_addr,
-            "amount_kes": amount_kes, "status": "REJECTED_LIMIT",
-            "reason": msg, "created_at": _now(),
-            "sender_name": sender_name, "sender_bank": sender_bank,
-            "narration": narration,
-        })
-        _va_audit({"at": _now(), "wallet": wallet_addr, "action": "VA_CREDIT_REJECTED",
-                   "tx_ref": tx_ref, "reason": msg, "amount_kes": amount_kes})
-        return False, msg, None
-
-    if amount_kes >= CBK_REPORT_THRESHOLD_KES:
-        _compliance_flag_add({
-            "at": _now(), "wallet": wallet_addr, "type": "LARGE_VA_CREDIT",
-            "amount_kes": amount_kes, "tx_ref": tx_ref,
-            "detail": "Exceeds CBK report threshold",
-        })
-
-    if _name_in_sanctions(sender_name):
-        _compliance_flag_add({
-            "at": _now(), "wallet": wallet_addr, "type": "SANCTIONS_SENDER",
-            "sender_name": sender_name, "amount_kes": amount_kes, "tx_ref": tx_ref,
-        })
-
-    psc_amount = round(float(amount_kes) / PSC_TO_KES_RATE, 2)
-    ok, msg, _wallet = _add_purchased_psc(
-        wallet_addr, psc_amount, amount_kes,
-        payment_reference=f"VA:{tx_ref}",
-    )
-    if not ok:
-        _va_credit_add({
-            "tx_ref": tx_ref, "wallet_address": wallet_addr,
-            "amount_kes": amount_kes, "status": "FAILED_CREDIT",
-            "reason": msg, "created_at": _now(),
-            "sender_name": sender_name, "sender_bank": sender_bank,
-            "narration": narration,
-        })
-        return False, msg, None
-
-    row = {
-        "tx_ref": tx_ref, "wallet_address": wallet_addr,
-        "amount_kes": amount_kes, "credited_psc": psc_amount,
-        "status": "COMPLETED", "created_at": _now(),
-        "sender_name": sender_name, "sender_bank": sender_bank,
-        "narration": narration, "credited_at": _now(),
-    }
-    _va_credit_add(row)
-
-    _va_audit({
-        "at": _now(), "wallet": wallet_addr, "action": "VA_CREDIT",
-        "tx_ref": tx_ref, "amount_kes": amount_kes, "credited_psc": psc_amount,
-        "sender_name": sender_name, "sender_bank": sender_bank,
-    })
-
-    _admin_ledger_add({
-        "type": "VA_CREDIT",
-        "wallet_address": wallet_addr,
-        "tx_ref": tx_ref,
-        "amount_kes": amount_kes,
-        "credited_psc": psc_amount,
-        "sender_name": sender_name,
-        "sender_bank": sender_bank,
-        "status": "COMPLETED",
-        "time": _now(),
-    })
-    return True, "OK", row
-
-
-@app.route("/webhooks/flutterwave_va", methods=["POST"])
-def webhook_flutterwave_va():
-    try:
-        if not FLW_WEBHOOK_SECRET:
-            return jsonify({"success": False, "message": "webhook secret not configured"}), 401
-        sent = request.headers.get("verif-hash", "")
-        if not hmac.compare_digest(sent, FLW_WEBHOOK_SECRET):
-            return jsonify({"success": False, "message": "bad signature"}), 401
-
-        body = request.get_json(silent=True) or {}
-        event = str(body.get("event") or body.get("type") or "").strip().lower()
-        d = body.get("data") or {}
-
-        if event in ("virtualaccount.credit", "va.credit",
-                     "charge.completed", "transfer.completed"):
-            account_number = str(d.get("account_number") or "").strip()
-            amount_kes = float(d.get("amount") or 0)
-            currency = str(d.get("currency") or "").upper()
-            tx_ref = str(d.get("tx_ref") or d.get("id") or uuid.uuid4().hex[:20]).strip()
-            sender_name = str(d.get("sender_name") or d.get("customer", {}).get("name") or "").strip()
-            sender_bank = str(d.get("sender_bank") or "").strip()
-            narration = str(d.get("narration") or "").strip()
-
-            if currency != VA_CURRENCY:
-                return jsonify({"success": True, "message": "ignored non-KES"}), 200
-            if not account_number or amount_kes <= 0:
-                return jsonify({"success": True, "message": "ignored"}), 200
-
-            wallet_addr = ""
-            for w, va in _va_all().items():
-                if str(va.get("account_number", "")).strip() == account_number:
-                    wallet_addr = w
-                    break
-            if not wallet_addr:
-                _va_audit({"at": _now(), "action": "VA_CREDIT_UNKNOWN_ACCOUNT",
-                           "account_number": account_number, "amount_kes": amount_kes})
-                return jsonify({"success": True, "message": "unknown VA"}), 200
-
-            ok, msg, _row = _credit_wallet_from_va(
-                wallet_addr, amount_kes, tx_ref, sender_name, sender_bank, narration
-            )
-            return jsonify({"success": ok, "message": msg}), 200
-
-        if event in ("chargeback.completed", "va.reversal", "refund.completed",
-                     "transfer.reversed"):
-            tx_ref = str(d.get("tx_ref") or d.get("id") or "").strip()
-            row = _va_credit_find(tx_ref)
-            if row and row.get("status") == "COMPLETED":
-                row["status"] = "REVERSED"
-                row["reversed_at"] = _now()
-                _va_write(VA_CREDITS_FILE, _va_credits_all())
-                wallet_addr = row.get("wallet_address")
-                psc = float(row.get("credited_psc") or 0)
-                if wallet_addr and psc > 0:
-                    try:
-                        deduct_wallet_psc(wallet_addr, psc)
-                    except Exception:
-                        pass
-                _va_audit({"at": _now(), "wallet": wallet_addr,
-                           "action": "VA_REVERSAL", "tx_ref": tx_ref, "psc": psc})
-                _admin_ledger_add({
-                    "type": "VA_REVERSAL",
-                    "wallet_address": wallet_addr,
-                    "tx_ref": tx_ref,
-                    "amount_psc": psc,
-                    "status": "REVERSED",
-                    "time": _now(),
-                })
-            return jsonify({"success": True}), 200
-
-        return jsonify({"success": True, "message": "ignored"}), 200
-    except Exception as e:
-        return jsonify({"success": False, "message": str(e)}), 500
-
-
-@app.route("/api/va/limits/<wallet_addr>", methods=["GET"])
-def api_va_limits(wallet_addr):
-    today_kes, today_count = _va_inflow_today_kes(wallet_addr)
-    lifetime = _va_inflow_lifetime_kes(wallet_addr)
-    return jsonify({
-        "success": True,
-        "min_kes": VA_MIN_KES,
-        "max_per_tx_kes": VA_MAX_KES,
-        "daily_max_kes": VA_DAILY_MAX_KES,
-        "daily_max_count": VA_MAX_PER_DAY,
-        "lifetime_max_kes": VA_LIFETIME_MAX_KES,
-        "today_kes": today_kes,
-        "today_count": today_count,
-        "lifetime_kes": lifetime,
-    })
-
-
-@app.route("/api/va/credits/<wallet_addr>", methods=["GET"])
-def api_va_credits(wallet_addr):
-    rows = [r for r in _va_credits_all() if r.get("wallet_address") == wallet_addr]
-    return jsonify({"success": True, "credits": rows})
-
-
-def _maybe_cbk_report(withdrawal_row, amount_kes):
-    try:
-        if amount_kes < KRA_WHT_THRESHOLD_KES:
-            return
-        row = {
-            "at": _now(),
-            "withdrawal_id": withdrawal_row.get("withdrawal_id"),
-            "wallet_address": withdrawal_row.get("wallet_address"),
-            "amount_kes": amount_kes,
-            "above_cbk": amount_kes >= CBK_REPORT_THRESHOLD_KES,
-            "above_kra_wht": amount_kes >= KRA_WHT_THRESHOLD_KES,
-            "method": withdrawal_row.get("method"),
-        }
-        rows = _va_load(CBK_REPORT_FILE, [])
-        if not isinstance(rows, list):
-            rows = []
-        rows.append(row)
-        _va_write(CBK_REPORT_FILE, rows)
-        if row["above_cbk"]:
-            _compliance_flag_add({
-                "at": _now(), "wallet": row["wallet_address"],
-                "type": "CBK_THRESHOLD_PAYOUT",
-                "amount_kes": amount_kes,
-                "withdrawal_id": row["withdrawal_id"],
-            })
-    except Exception as e:
-        print(f"[CBK] report failed: {e}")
-
-
-def _velocity_all():
-    d = _va_load(VELOCITY_FILE, {})
-    return d if isinstance(d, dict) else {}
-
-
-def _velocity_save(d):
-    _va_write(VELOCITY_FILE, d)
-
-
-def _velocity_stats(wallet_addr):
-    today = datetime.now().strftime("%Y-%m-%d")
-    week_ago = (datetime.now() - timedelta(days=7)).strftime("%Y-%m-%d")
-    d = _velocity_all().get(wallet_addr) or {"events": []}
-    events = d.get("events", [])
-    today_count = sum(1 for e in events if str(e.get("at", "")).startswith(today))
-    week_count = sum(1 for e in events if str(e.get("at", ""))[:10] >= week_ago)
-    return {"today_count": today_count, "week_count": week_count, "events": events}
-
-
-def _record_payout_velocity(wallet_addr, amount_kes, kind="PAID"):
-    d = _velocity_all()
-    entry = d.get(wallet_addr) or {"events": []}
-    entry["events"].append({
-        "at": _now(), "amount_kes": amount_kes, "kind": kind,
-    })
-    entry["events"] = entry["events"][-200:]
-    d[wallet_addr] = entry
-    _velocity_save(d)
-
-
-def _velocity_check(wallet_addr):
-    stats = _velocity_stats(wallet_addr)
-    if stats["today_count"] + 1 > PAYOUT_VELOCITY_MAX_PER_DAY:
-        return False, f"Daily payout limit reached ({PAYOUT_VELOCITY_MAX_PER_DAY})."
-    if stats["week_count"] + 1 > PAYOUT_VELOCITY_MAX_PER_WEEK:
-        return False, f"Weekly payout limit reached ({PAYOUT_VELOCITY_MAX_PER_WEEK})."
-    return True, "OK"
-
-
-@app.route("/api/admin/payout/velocity/<wallet_addr>", methods=["GET"])
-def api_admin_payout_velocity(wallet_addr):
-    sent = request.headers.get("X-PSC-Admin-Token", "")
-    if not PSC_ADMIN_TOKEN or not hmac.compare_digest(sent, PSC_ADMIN_TOKEN):
-        return jsonify({"success": False, "message": "forbidden"}), 403
-    return jsonify({"success": True, "stats": _velocity_stats(wallet_addr)})
-
-
-def _destination_sanctioned(destination, bank_code=""):
-    dest = str(destination or "").strip()
-    if not dest:
-        return False
-    target = dest.lower()
-    for entry in _sanctions_blocklist():
-        if entry and entry in target:
-            return True
-    return False
-
-
-def _va_gate_payout(wallet_addr, client, amount_kes, method="", destination="",
-                    bank_code="", admin_side=False):
-    try:
-        vok, vmsg = _velocity_check(wallet_addr)
-        if not vok:
-            return {"ok": False, "status": 429, "gate": "velocity",
-                    "message": vmsg,
-                    "details": _velocity_stats(wallet_addr)}
-
-        if _destination_sanctioned(destination, bank_code):
-            _compliance_flag_add({
-                "at": _now(), "wallet": wallet_addr,
-                "type": "SANCTIONED_DESTINATION",
-                "destination": destination, "bank_code": bank_code,
-                "amount_kes": amount_kes, "method": method,
-            })
-            return {"ok": False, "status": 403, "gate": "sanctions_destination",
-                    "message": "Destination matches sanctions blocklist."}
-
-        if method == "bank":
-            if not _bank_code_valid(bank_code):
-                return {"ok": False, "status": 400, "gate": "bank_code_invalid",
-                        "message": f"Unknown bank_code '{bank_code}'."}
-            res = _resolve_account(bank_code, destination)
-            if not res.get("ok"):
-                return {"ok": False, "status": 502, "gate": "resolve_failed",
-                        "message": f"Account resolution failed: {res.get('message')}"}
-            resolved_name = (res.get("account_name") or "").strip().lower()
-            expected_name = str((client or {}).get("name") or "").strip().lower()
-            if expected_name:
-                words_ok = any(
-                    w in resolved_name for w in expected_name.split()
-                    if len(w) >= 3
-                )
-                if not words_ok:
-                    _compliance_flag_add({
-                        "at": _now(), "wallet": wallet_addr,
-                        "type": "NAME_MISMATCH_PAYOUT",
-                        "expected": expected_name, "resolved": resolved_name,
-                        "amount_kes": amount_kes,
-                    })
-                    return {
-                        "ok": False, "status": 409, "gate": "name_mismatch",
-                        "message": (f"Bank account name '{res.get('account_name')}' "
-                                    f"does not match registered client name."),
-                        "details": {"resolved_name": res.get("account_name"),
-                                    "registered_name": expected_name},
-                    }
-
-        if KYC_REQUIRED and amount_kes > 0:
-            kyc = _kyc_get(wallet_addr)
-            if not kyc or kyc.get("status") != "VERIFIED":
-                if admin_side:
-                    _compliance_flag_add({
-                        "at": _now(), "wallet": wallet_addr,
-                        "type": "PAYOUT_WITHOUT_KYC_ADMIN_OVERRIDE",
-                        "amount_kes": amount_kes,
-                    })
-                else:
-                    return {
-                        "ok": False, "status": 403, "gate": "kyc_required",
-                        "message": "Complete KYC before requesting a payout.",
-                        "details": {"kyc_status": (kyc or {}).get("status", "NOT_SUBMITTED")},
-                    }
-
-        if amount_kes > PAYOUT_MAX_KES + 1e-9:
-            return {"ok": False, "status": 400, "gate": "per_tx_cap",
-                    "message": f"Above per-transaction cap KES {PAYOUT_MAX_KES:.2f}"}
-
-        return {"ok": True}
-    except Exception as e:
-        print(f"[VA GATE] error: {e}")
-        return {"ok": True}
-
-
-@app.route("/api/admin/va/credits", methods=["GET"])
-def api_admin_va_credits():
-    sent = request.headers.get("X-PSC-Admin-Token", "")
-    if not PSC_ADMIN_TOKEN or not hmac.compare_digest(sent, PSC_ADMIN_TOKEN):
-        return jsonify({"success": False, "message": "forbidden"}), 403
-    wallet = request.args.get("wallet")
-    rows = _va_credits_all()
-    if wallet:
-        rows = [r for r in rows if r.get("wallet_address") == wallet]
-    return jsonify({"success": True, "credits": rows})
-
-
-@app.route("/api/admin/compliance/flags", methods=["GET"])
-def api_admin_compliance_flags():
-    sent = request.headers.get("X-PSC-Admin-Token", "")
-    if not PSC_ADMIN_TOKEN or not hmac.compare_digest(sent, PSC_ADMIN_TOKEN):
-        return jsonify({"success": False, "message": "forbidden"}), 403
-    return jsonify({"success": True, "flags": _compliance_flags_all()})
-
-
-@app.route("/api/admin/compliance/flag", methods=["POST"])
-def api_admin_compliance_flag():
-    sent = request.headers.get("X-PSC-Admin-Token", "")
-    if not PSC_ADMIN_TOKEN or not hmac.compare_digest(sent, PSC_ADMIN_TOKEN):
-        return jsonify({"success": False, "message": "forbidden"}), 403
-    data = request.get_json() or {}
-    _compliance_flag_add({
-        "at": _now(),
-        "wallet": str(data.get("wallet") or "").strip(),
-        "type": str(data.get("type") or "MANUAL_FLAG"),
-        "detail": str(data.get("detail") or ""),
-        "by": "admin",
-    })
-    return jsonify({"success": True})
-
-
-@app.route("/api/admin/cbk/report", methods=["GET"])
-def api_admin_cbk_report():
-    sent = request.headers.get("X-PSC-Admin-Token", "")
-    if not PSC_ADMIN_TOKEN or not hmac.compare_digest(sent, PSC_ADMIN_TOKEN):
-        return jsonify({"success": False, "message": "forbidden"}), 403
-    return jsonify({"success": True, "reports": _va_load(CBK_REPORT_FILE, [])})
-
-
-@app.route("/api/admin/aml/screen", methods=["POST"])
-def api_admin_aml_screen():
-    sent = request.headers.get("X-PSC-Admin-Token", "")
-    if not PSC_ADMIN_TOKEN or not hmac.compare_digest(sent, PSC_ADMIN_TOKEN):
-        return jsonify({"success": False, "message": "forbidden"}), 403
-    data = request.get_json() or {}
-    name = str(data.get("name") or "")
-    wallet_addr = str(data.get("wallet") or "")
-    hit = _name_in_sanctions(name)
-    if hit:
-        _compliance_flag_add({
-            "at": _now(), "wallet": wallet_addr,
-            "type": "AML_MANUAL_SANCTIONS_HIT", "name": name,
-        })
-    return jsonify({"success": True, "sanctions_hit": hit})
-
-
-# ============================================================
-# END VIRTUAL ACCOUNT (VA) + COMPLIANCE LAYER
-# ============================================================
-
-
-# ============================================================
-# WALLET UPGRADE LAYER â€” ADDITIVE
-# ============================================================
-
-WALLET_DEPOSIT_MAX_KES        = float(os.getenv("WALLET_DEPOSIT_MAX_KES", "0") or 0)
-WALLET_WITHDRAW_DAILY_MAX_KES = float(os.getenv("WALLET_WITHDRAW_DAILY_MAX_KES", "100000") or 100000)
-WALLET_TRANSFER_MIN_PSC       = float(os.getenv("WALLET_TRANSFER_MIN_PSC", "1") or 1)
-WALLET_TRANSFER_MAX_PSC       = float(os.getenv("WALLET_TRANSFER_MAX_PSC", "0") or 0)
-WALLET_TRANSFER_DAILY_MAX_PSC = float(os.getenv("WALLET_TRANSFER_DAILY_MAX_PSC", "0") or 0)
-WALLET_CARD_DEPOSIT_ENABLED   = os.getenv("WALLET_CARD_DEPOSIT_ENABLED", "1").strip() == "1"
-WALLET_BANK_DEPOSIT_ENABLED   = os.getenv("WALLET_BANK_DEPOSIT_ENABLED", "1").strip() == "1"
-WALLET_MPESA_DEPOSIT_ENABLED  = os.getenv("WALLET_MPESA_DEPOSIT_ENABLED", "1").strip() == "1"
-
-WALLET_OPS_FILE = os.path.join(
-    os.path.dirname(PAYMENTS_FILE) or ".",
-    "wallet_ledger_ops.json"
-)
-
-_WALLET_OPS_LOCK = threading.Lock()
-
-
-def _wallet_ops_all():
-    d = _jload(WALLET_OPS_FILE, [])
-    return d if isinstance(d, list) else []
-
-
-def _wallet_ops_add(row):
-    with _WALLET_OPS_LOCK:
-        rows = _wallet_ops_all()
-        rows.append(row)
-        _jsave(WALLET_OPS_FILE, rows)
-
-
-def _wallet_deposit_today_kes(wallet_addr):
-    today = datetime.now().strftime("%Y-%m-%d")
-    total = 0.0
-    for r in _wallet_ops_all():
-        if r.get("type") != "DEPOSIT":
-            continue
-        if r.get("wallet_address") != wallet_addr:
-            continue
-        if r.get("status") != "COMPLETED":
-            continue
-        if str(r.get("created_at", "")).startswith(today):
-            total += float(r.get("amount_kes") or 0)
-    return round(total, 2)
-
-
-def _wallet_withdraw_today_kes(wallet_addr):
-    today = datetime.now().strftime("%Y-%m-%d")
-    seen = set()
-    total = 0.0
-    for r in _wallet_ops_all():
-        if r.get("type") not in ("WITHDRAWAL_REQUEST", "WITHDRAWAL_PAID"):
-            continue
-        if r.get("wallet_address") != wallet_addr:
-            continue
-        if r.get("status") in ("REJECTED",):
-            continue
-        if not str(r.get("created_at", "")).startswith(today):
-            continue
-        wid = str(r.get("withdrawal_id") or r.get("request_id") or "")
-        if wid and wid in seen:
-            continue
-        if wid:
-            seen.add(wid)
-        total += float(r.get("amount_kes") or 0)
-    return round(total, 2)
-
-
-def _wallet_transfer_today_psc(wallet_addr):
-    today = datetime.now().strftime("%Y-%m-%d")
-    total = 0.0
-    for r in _wallet_ops_all():
-        if r.get("type") != "TRANSFER_OUT":
-            continue
-        if r.get("wallet_address") != wallet_addr:
-            continue
-        if r.get("status") != "COMPLETED":
-            continue
-        if str(r.get("created_at", "")).startswith(today):
-            total += float(r.get("amount_psc") or 0)
-    return round(total, 2)
-
-
-def _wallet_ui_deposit_options():
-    opts = []
-    if WALLET_BANK_DEPOSIT_ENABLED:
-        opts.append({
-            "key": "banktransfer",
-            "label": "Bank Transfer",
-            "sub": "Deposit from any Kenyan bank",
-            "gateways": [k for k in (("flutterwave" if FLW_SECRET_KEY else None),
-                                     ("paystack" if (PAYSTACK_ENABLED and PAYSTACK_SECRET_KEY) else None)) if k],
-        })
-    if WALLET_CARD_DEPOSIT_ENABLED:
-        opts.append({
-            "key": "card",
-            "label": "Card (Visa / Mastercard)",
-            "sub": "Any credit or debit card",
-            "gateways": [k for k in (("flutterwave" if FLW_SECRET_KEY else None),
-                                     ("paystack" if (PAYSTACK_ENABLED and PAYSTACK_SECRET_KEY) else None)) if k],
-        })
-    if WALLET_MPESA_DEPOSIT_ENABLED:
-        opts.append({
-            "key": "mpesa",
-            "label": "M-Pesa",
-            "sub": "Safaricom M-Pesa",
-            "gateways": [k for k in (("flutterwave" if FLW_SECRET_KEY else None),
-                                     ("paystack" if (PAYSTACK_ENABLED and PAYSTACK_SECRET_KEY) else None)) if k],
-        })
-    if COINGATE_ENABLED and COINGATE_API_TOKEN:
-        opts.append({
-            "key": "crypto",
-            "label": "Crypto (BTC, ETH, USDT-TRC20)",
-            "sub": "Powered by CoinGate",
-            "gateways": ["coingate"],
-            "currencies": COINGATE_ALLOWED_CURRENCIES,
-            "default_currency": COINGATE_DEFAULT_RECEIVE,
-        })
-
-    if MOONPAY_ENABLED and MOONPAY_PUBLISHABLE_KEY:
-        opts.append({
-            "key": "crypto_moonpay",
-            "label": "Crypto Card (BTC, ETH, USDT, USDC)",
-            "sub": "Powered by MoonPay - pay by card",
-            "gateways": ["moonpay"],
-            "currencies": [c.upper() for c in MOONPAY_ALLOWED_CRYPTOS],
-            "default_currency": MOONPAY_BASE_CURRENCY.upper(),
-            "fiat_currency": MOONPAY_CURRENCY_CODE.upper(),
-        })
-    return opts
-
-
-@app.route("/api/wallet/deposit/initiate", methods=["POST"])
-def api_wallet_deposit_initiate():
-    try:
-        data = request.get_json() or {}
-        user = session.get("user")
-        session_wallet = session.get("wallet", "")
-        if not user or not session_wallet:
-            return jsonify({"success": False,
-                            "message": "Please log in to your account before depositing."}), 401
-
-        address = str(data.get("wallet") or session_wallet or "").strip()
-        if address != session_wallet:
-            return jsonify({"success": False,
-                            "message": "Wallet does not match the logged-in account."}), 403
-
-        amount_kes = float(data.get("amount_kes") or 0)
-        if amount_kes < 1:
-            return jsonify({"success": False, "message": "amount_kes must be at least 1"}), 400
-
-        if WALLET_DEPOSIT_MAX_KES > 0 and amount_kes > WALLET_DEPOSIT_MAX_KES + 1e-9:
-            return jsonify({
-                "success": False,
-                "message": f"Single deposit exceeds cap KES {WALLET_DEPOSIT_MAX_KES:.2f}.",
-                "max_deposit_kes": WALLET_DEPOSIT_MAX_KES,
-            }), 400
-
-        channel = str(data.get("channel") or "card").strip().lower()
-        if channel not in ("card", "banktransfer", "bank", "mpesa"):
-            channel = "card"
-
-        gateway = str(data.get("gateway") or "").strip().lower()
-        if gateway in ("flutterwave", "moonpay"):
-            return jsonify({"success": False,
-                            "message": "This gateway has been disabled. Please use Paystack or CoinGate."}), 400
-        if gateway != "paystack":
-            gateway = "paystack"
-        if not (PAYSTACK_ENABLED and PAYSTACK_SECRET_KEY):
-            return jsonify({"success": False,
-                            "message": "Paystack is not configured in .env"}), 503
-
-        # ADDITIVE (Option C): target pocket.
-        target = _normalize_credit_target(
-            data.get("target") or data.get("credit_target") or "spendable"
-        )
-
-        _deposit_tx_ref = (
-            ("PSC-PS-" if gateway == "paystack" else "PSC-") + uuid.uuid4().hex[:16]
-        )
-
-        _wallet_ops_add({
-            "type": "DEPOSIT",
-            "tx_ref": _deposit_tx_ref,
-            "wallet_address": address,
-            "amount_kes": round(amount_kes, 2),
-            "channel": channel,
-            "gateway": gateway,
-            "target": target,
-            "status": "INITIATED",
-            "created_at": _now(),
-        })
-
-        # === DEPOSIT_SESSION_PROPAGATION_FIX ===
-        # Snapshot the outer session before entering the nested
-        # request context (which otherwise starts with an empty session).
-        _saved_session = dict(session)
-        _payload = {
-            "wallet": address,
-            "amount_kes": amount_kes,
-            "gateway": gateway,
-            "target": target,
-            "redirect_url": data.get("redirect_url"),
-        }
-
-        # === DEPOSIT_WRAPPER_INLINE_FIX ===
-        # Instead of nesting api_psc_topup_initiate() inside a new
-        # request context (which loses the session), do the topup
-        # inline on the current request. Same session throughout.
-        #
-        # === FIX #B ===
-        # Removed unreachable dead code that used to sit after this
-        # if/else. Both branches return, so anything below them was
-        # never executed and would have crashed with NameError if ever
-        # reached (undefined `resp`).
-        if gateway == "paystack":
-            if not PAYSTACK_ENABLED:
-                return jsonify({"success": False, "message": "Paystack is disabled (PAYSTACK_ENABLED=0)."}), 503
-            if not PAYSTACK_SECRET_KEY:
-                return jsonify({"success": False, "message": "Paystack keys not configured in .env"}), 500
-            client = get_client_by_phone(session.get("verified_phone", ""))
-            if not client:
-                return jsonify({"success": False, "message": "No registered account found for your phone number."}), 404
-            if str(client.get("wallet_address", "")).strip() != address:
-                return jsonify({"success": False, "message": "Your verified phone does not belong to this wallet."}), 403
-            amount_subunit = int(round(amount_kes * 100))
-            tx_ref = _deposit_tx_ref
-            expected_psc = round(amount_kes / PSC_TO_KES_RATE, 2)
-            _ps_payment_add({
-                "tx_ref": tx_ref, "wallet_address": address,
-                "amount_kes": round(amount_kes, 2), "expected_psc": expected_psc,
-                "status": "PENDING", "provider": "paystack",
-                "ps_reference": None, "created_at": _now(),
-                "verified_at": None, "credited_psc": 0.0, "target": target,
-            })
-            payload = {
-                "email": client.get("email") or "customer@example.com",
-                "amount": amount_subunit,
-                "currency": PAYSTACK_CURRENCY,
-                "reference": tx_ref,
-                "callback_url": data.get("redirect_url") or (request.url_root.rstrip("/") + "/psc_topup_return"),
-                "metadata": {"wallet": address, "target": target},
-            }
-            r = _http.post(f"{PAYSTACK_BASE_URL}/transaction/initialize", json=payload, headers=_ps_headers(), timeout=20)
-            resp_json = r.json() if r.content else {}
-            if r.status_code >= 300 or not resp_json.get("status"):
-                _ps_payment_update(tx_ref, status="FAILED", error=str(resp_json.get("message") or r.text)[:300])
-                return jsonify({"success": False, "message": resp_json.get("message") or "Paystack error"}), 502
-            pdata = resp_json.get("data") or {}
-            return jsonify({
-                "success": True, "tx_ref": tx_ref,
-                "checkout_url": pdata.get("authorization_url"),
-                "access_code": pdata.get("access_code"),
-                "reference": pdata.get("reference") or tx_ref,
-                "amount_kes": round(amount_kes, 2),
-                "expected_psc": expected_psc,
-                "gateway": "paystack", "target": target,
-                "message": "Open the checkout link to complete payment.",
-            })
-        else:
-            # Flutterwave â€” inline, using the CURRENT request/session
-            if not FLW_SECRET_KEY:
-                return jsonify({"success": False, "message": "Flutterwave keys not configured in .env"}), 500
-            client = get_client_by_phone(session.get("verified_phone", ""))
-            if not client:
-                return jsonify({"success": False, "message": "No registered account found for your phone number."}), 404
-            if str(client.get("wallet_address", "")).strip() != address:
-                return jsonify({"success": False, "message": "Your verified phone does not belong to this wallet."}), 403
-            tx_ref = _deposit_tx_ref
-            expected_psc = round(amount_kes / PSC_TO_KES_RATE, 2)
-            _payment_add({
-                "tx_ref": tx_ref, "wallet_address": address,
-                "amount_kes": round(amount_kes, 2), "expected_psc": expected_psc,
-                "status": "PENDING", "provider": "flutterwave",
-                "flw_tx_id": None, "created_at": _now(),
-                "verified_at": None, "credited_psc": 0.0, "target": target,
-            })
-            payload = {
-                "tx_ref": tx_ref,
-                "amount": str(round(amount_kes, 2)),
-                "currency": "KES",
-                "redirect_url": data.get("redirect_url") or request.url_root.rstrip("/") + "/psc_topup_return",
-                "payment_options": "card,mpesa,banktransfer,ussd",
-                "customer": {
-                    "email": client.get("email") or "customer@example.com",
-                    "phonenumber": client.get("phone") or session.get("verified_phone", ""),
-                    "name": client.get("name") or "PSC Customer",
-                },
-                "customizations": {"title": "PSC Top-Up", "description": f"Buy {expected_psc} PSC for KES {amount_kes:.2f}"},
-            }
-            r = _http.post(f"{FLW_BASE_URL}/payments", json=payload, headers=_flw_headers(), timeout=20)
-            resp_json = r.json() if r.content else {}
-            if r.status_code >= 300 or resp_json.get("status") != "success":
-                _payment_update(tx_ref, status="FAILED", error=str(resp_json.get("message") or r.text)[:300])
-                return jsonify({"success": False, "message": resp_json.get("message") or "Flutterwave error"}), 502
-            return jsonify({
-                "success": True, "tx_ref": tx_ref,
-                "checkout_url": resp_json["data"]["link"],
-                "amount_kes": round(amount_kes, 2),
-                "expected_psc": expected_psc,
-                "gateway": "flutterwave", "target": target,
-                "message": "Open the checkout link to complete payment.",
-            })
-        # === END DEPOSIT_WRAPPER_INLINE_FIX ===
-    except Exception as e:
-        return jsonify({"success": False, "message": str(e)}), 500
-
-
-@app.route("/api/wallet/deposit/verify", methods=["POST"])
-def api_wallet_deposit_verify():
-    try:
-        data = request.get_json() or {}
-        tx_ref = str(data.get("tx_ref") or "").strip()
-        gateway = str(data.get("gateway") or "paystack").strip().lower()
-        if gateway == "flutterwave":
-            gateway = "paystack"
-                # === FIX 7: use the current request context; test_request_context
-        # wipes the session and breaks authenticated credit. ===
-        if gateway == "paystack":
-            resp = api_psc_topup_verify_ps()
-        else:
-            resp = api_psc_topup_verify()
-        # === END FIX 7 ===
-
-        body = resp[0].get_json() if isinstance(resp, tuple) else resp.get_json()
-        status_code = resp[1] if isinstance(resp, tuple) else resp.status_code
-
-        if body.get("success") and tx_ref:
-            with _WALLET_OPS_LOCK:
-                rows = _wallet_ops_all()
-                for r in rows:
-                    if r.get("type") == "DEPOSIT" and r.get("tx_ref") == tx_ref:
-                        r["status"] = "COMPLETED"
-                        r["verified_at"] = _now()
-                        break
-                _jsave(WALLET_OPS_FILE, rows)
-
-        return jsonify(body), status_code
-    except Exception as e:
-        return jsonify({"success": False, "message": str(e)}), 500
-
-
-@app.route("/api/wallet/deposit/history/<wallet_addr>", methods=["GET"])
-def api_wallet_deposit_history(wallet_addr):
-    rows = [r for r in _wallet_ops_all()
-            if r.get("type") == "DEPOSIT" and r.get("wallet_address") == wallet_addr]
-    # ADDITIVE (Option C): per-target breakdown.
-    by_target = {"spendable": 0.0, "savings": 0.0, "deposit": 0.0}
-    for r in rows:
-        if r.get("status") != "COMPLETED":
-            continue
-        t = _normalize_credit_target(r.get("target") or "spendable")
-        by_target[t] = round(by_target.get(t, 0.0) + float(r.get("amount_kes") or 0), 2)
-    return jsonify({
-        "success": True,
-        "deposits": rows,
-        "today_kes": _wallet_deposit_today_kes(wallet_addr),
-        "max_deposit_kes": WALLET_DEPOSIT_MAX_KES,
-        "by_target_kes": by_target,
-        "psc_to_kes_rate": PSC_TO_KES_RATE,
-    })
-
-
-@app.route("/api/wallet/transfer/lookup", methods=["POST"])
-def api_wallet_transfer_lookup():
-    try:
-        data = request.get_json() or {}
-        query = str(data.get("query") or data.get("phone") or data.get("wallet") or "").strip()
-        if not query:
-            return jsonify({"success": False, "message": "query is required"}), 400
-
-        client = None
-        if query.upper().startswith("PSC") and len(query) >= 12:
-            client = _client_by_wallet(query)
-        else:
-            client = get_client_by_phone(query)
-
-        if not client:
-            return jsonify({"success": False, "message": "Recipient not found."}), 404
-
-        recipient_wallet = str(client.get("wallet_address", "")).strip()
-        if not recipient_wallet:
-            return jsonify({"success": False, "message": "Recipient has no wallet."}), 404
-
-        return jsonify({
-            "success": True,
-            "recipient": {
-                "name": client.get("name", ""),
-                "phone": client.get("phone", ""),
-                "wallet": recipient_wallet,
-                "wallet_short": recipient_wallet[:10] + "Ã¢â‚¬Â¦" + recipient_wallet[-6:],
-            },
-        })
-    except Exception as e:
-        return jsonify({"success": False, "message": str(e)}), 500
-
-
-@app.route("/api/wallet/transfer", methods=["POST"])
-def api_wallet_transfer():
-    try:
-        data = request.get_json() or {}
-        session_wallet = session.get("wallet", "")
-        sender_wallet = str(data.get("wallet") or session_wallet or "").strip()
-
-        if not sender_wallet:
-            return jsonify({"success": False, "message": "Wallet is required."}), 400
-        if session_wallet and sender_wallet != session_wallet:
-            return jsonify({"success": False, "message": "Wallet mismatch."}), 403
-
-        recipient_query = str(
-            data.get("recipient")
-            or data.get("recipient_phone")
-            or data.get("recipient_wallet")
-            or ""
-        ).strip()
-        if not recipient_query:
-            return jsonify({"success": False, "message": "recipient is required"}), 400
-
-        amount_psc = round(float(data.get("amount_psc") or 0), 2)
-        if amount_psc < WALLET_TRANSFER_MIN_PSC:
-            return jsonify({"success": False,
-                            "message": f"Minimum transfer is {WALLET_TRANSFER_MIN_PSC} PSC."}), 400
-        if WALLET_TRANSFER_MAX_PSC > 0 and amount_psc > WALLET_TRANSFER_MAX_PSC + 1e-9:
-            return jsonify({"success": False,
-                            "message": f"Single transfer exceeds {WALLET_TRANSFER_MAX_PSC} PSC."}), 400
-        if WALLET_TRANSFER_DAILY_MAX_PSC > 0:
-            used = _wallet_transfer_today_psc(sender_wallet)
-            if used + amount_psc > WALLET_TRANSFER_DAILY_MAX_PSC + 1e-9:
-                return jsonify({
-                    "success": False,
-                    "message": f"Daily transfer cap is {WALLET_TRANSFER_DAILY_MAX_PSC} PSC. Used {used:.2f}."}), 400
-
-        if recipient_query.upper().startswith("PSC") and len(recipient_query) >= 12:
-            recipient_client = _client_by_wallet(recipient_query)
-        else:
-            recipient_client = get_client_by_phone(recipient_query)
-
-        if not recipient_client:
-            return jsonify({"success": False, "message": "Recipient not found."}), 404
-
-        recipient_wallet = str(recipient_client.get("wallet_address", "")).strip()
-        if not recipient_wallet:
-            return jsonify({"success": False, "message": "Recipient has no wallet."}), 404
-        if recipient_wallet == sender_wallet:
-            return jsonify({"success": False, "message": "Cannot transfer to yourself."}), 400
-
-        sender_client = _client_by_wallet(sender_wallet) or {}
-
-        sender_phone_in_session = session.get("verified_phone", "")
-        if sender_phone_in_session:
-            if _normalize_phone(sender_client.get("phone", "")) != _normalize_phone(sender_phone_in_session):
-                return jsonify({"success": False, "message": "Sender verification failed."}), 403
-
-        ok, msg = deduct_wallet_psc(sender_wallet, amount_psc)
-        if not ok:
-            return jsonify({"success": False, "message": msg}), 400
-
-        cred_ok, cred_msg, _ = _add_purchased_psc(
-            recipient_wallet, amount_psc,
-            kes_amount=round(amount_psc * PSC_TO_KES_RATE, 2),
-            payment_reference=f"P2P:{sender_wallet}",
-        )
-        if not cred_ok:
-            try:
-                _add_purchased_psc(
-                    sender_wallet, amount_psc,
-                    kes_amount=round(amount_psc * PSC_TO_KES_RATE, 2),
-                    payment_reference="P2P_ROLLBACK",
-                )
-            except Exception:
-                pass
-            return jsonify({"success": False,
-                            "message": f"Recipient credit failed: {cred_msg}"}), 500
-
-        transfer_id = "TX-" + uuid.uuid4().hex[:12]
-        _wallet_ops_add({
-            "type": "TRANSFER_OUT",
-            "transfer_id": transfer_id,
-            "wallet_address": sender_wallet,
-            "recipient_wallet": recipient_wallet,
-            "recipient_name": recipient_client.get("name", ""),
-            "amount_psc": amount_psc,
-            "amount_kes": round(amount_psc * PSC_TO_KES_RATE, 2),
-            "status": "COMPLETED",
-            "created_at": _now(),
-        })
-        _wallet_ops_add({
-            "type": "TRANSFER_IN",
-            "transfer_id": transfer_id,
-            "wallet_address": recipient_wallet,
-            "sender_wallet": sender_wallet,
-            "sender_name": sender_client.get("name", ""),
-            "amount_psc": amount_psc,
-            "amount_kes": round(amount_psc * PSC_TO_KES_RATE, 2),
-            "status": "COMPLETED",
-            "created_at": _now(),
-        })
-
-        _admin_ledger_add({
-            "type": "P2P_TRANSFER",
-            "transfer_id": transfer_id,
-            "sender_wallet": sender_wallet,
-            "recipient_wallet": recipient_wallet,
-            "amount_psc": amount_psc,
-            "amount_kes": round(amount_psc * PSC_TO_KES_RATE, 2),
-            "status": "COMPLETED",
-            "time": _now(),
-        })
-
-        sender_wallet_after = get_wallet(sender_wallet) or {}
-        return jsonify({
-            "success": True,
-            "transfer_id": transfer_id,
-            "amount_psc": amount_psc,
-            "amount_kes": round(amount_psc * PSC_TO_KES_RATE, 2),
-            "recipient": {
-                "name": recipient_client.get("name", ""),
-                "phone": recipient_client.get("phone", ""),
-                "wallet": recipient_wallet,
-            },
-            "wallet_psc_after": round(float(sender_wallet_after.get("wallet_psc", 0) or 0), 2),
-            "message": (f"Sent {amount_psc:.2f} PSC (KES {amount_psc * PSC_TO_KES_RATE:.2f}) "
-                        f"to {recipient_client.get('name', 'recipient')}."),
-        })
-    except Exception as e:
-        return jsonify({"success": False, "message": str(e)}), 500
-
-
-@app.route("/api/wallet/transfer/history/<wallet_addr>", methods=["GET"])
-def api_wallet_transfer_history(wallet_addr):
-    rows = [r for r in _wallet_ops_all()
-            if r.get("type") in ("TRANSFER_OUT", "TRANSFER_IN")
-            and r.get("wallet_address") == wallet_addr]
-    return jsonify({"success": True, "transfers": rows})
-
-
-@app.route("/api/wallet/withdraw/highvalue", methods=["POST"])
-def api_wallet_withdraw_highvalue():
-    try:
-        data = request.get_json() or {}
-        session_wallet = session.get("wallet", "")
-        wallet_addr = str(data.get("wallet") or session_wallet or "").strip()
-        if not wallet_addr:
-            return jsonify({"success": False, "message": "Wallet is required."}), 400
-        if session_wallet and wallet_addr != session_wallet:
-            return jsonify({"success": False, "message": "Wallet mismatch."}), 403
-
-        wallet = get_wallet(wallet_addr)
-        if not wallet:
-            return jsonify({"success": False, "message": "Wallet not found."}), 404
-
-        amount_psc = round(float(data.get("amount_psc") or 0), 2)
-        if amount_psc < 1:
-            return jsonify({"success": False, "message": "Minimum withdrawal is 1 PSC."}), 400
-
-        method = str(data.get("method") or "mpesa").strip().lower()
-        if method not in ("mpesa", "bank"):
-            return jsonify({"success": False, "message": "method must be mpesa or bank."}), 400
-        destination = str(data.get("destination") or "").strip()
-        bank_code   = str(data.get("bank_code") or "").strip()
-
-        client = _client_by_wallet(wallet_addr)
-        if not client:
-            return jsonify({"success": False, "message": "Wallet not linked to any client."}), 404
-
-        if method == "mpesa":
-            destination = _normalize_phone(destination) or _normalize_phone(client.get("phone", ""))
-            if not destination:
-                return jsonify({"success": False, "message": "No M-Pesa number on this account."}), 400
-        else:
-            if not destination or not bank_code:
-                return jsonify({"success": False,
-                                "message": "bank_code and destination are required."}), 400
-
-        _source = str(data.get("source") or "wallet").strip().lower()
-        if _source not in ("wallet", "savings", "deposit"):
-            _source = "wallet"
-        _pk = {"wallet": "wallet_psc",
-               "savings": "savings_psc",
-               "deposit": "deposit_psc"}[_source]
-        _plabel = {"wallet": "Spendable",
-                   "savings": "Savings",
-                   "deposit": "Deposit"}[_source]
-        available = round(float(wallet.get(_pk, 0) or 0), 2)
-        if amount_psc > available - 1.00 + 1e-9:
-            return jsonify({
-                "success": False,
-                "message": (f"At least 1.00 PSC must remain in your {_plabel} pocket. "
-                            f"Available {available:.2f} PSC. "
-                            f"Maximum withdrawable {max(0.0, available - 1.00):.2f} PSC."),
-                "wallet_psc": available,
-                "source": _source,
-                "max_withdrawable_psc": round(max(0.0, available - 1.00), 2),
-            }), 400
-
-        amount_kes = round(amount_psc * PSC_TO_KES_RATE, 2)
-        used_today = _wallet_withdraw_today_kes(wallet_addr)
-        if used_today + amount_kes > WALLET_WITHDRAW_DAILY_MAX_KES + 1e-9:
-            return jsonify({
-                "success": False,
-                "message": (f"Daily withdrawal cap is KES {WALLET_WITHDRAW_DAILY_MAX_KES:.2f}. "
-                            f"Used today: KES {used_today:.2f}. Requested: KES {amount_kes:.2f}."),
-                "daily_max_kes": WALLET_WITHDRAW_DAILY_MAX_KES,
-                "used_today_kes": used_today,
-                "remaining_today_kes": round(max(0.0, WALLET_WITHDRAW_DAILY_MAX_KES - used_today), 2),
-            }), 400
-
-        gate = _va_gate_payout(wallet_addr, client, amount_kes,
-                               method=method, destination=destination,
-                               bank_code=bank_code)
-        if not gate.get("ok"):
-            return jsonify({
-                "success": False,
-                "message": gate.get("message", "Payout blocked by compliance gate."),
-                "gate": gate.get("gate"),
-                "details": gate.get("details", {}),
-            }), gate.get("status", 403)
-
-        withdrawal_id = "WRV-" + uuid.uuid4().hex[:12]
-        ok, msg, _w = _wallet_hold_withdrawal(wallet_addr, amount_psc, withdrawal_id, source=_source)
-        if not ok:
-            return jsonify({"success": False, "message": msg}), 400
-
-        _wq_add({
-            "withdrawal_id": withdrawal_id,
-            "wallet_address": wallet_addr,
-            "amount_psc": amount_psc,
-            "amount_kes": amount_kes,
-            "method": method,
-            "destination": destination,
-            "bank_code": bank_code,
-            "source": _source,
-            "status": "PENDING_ADMIN",
-            "created_at": _now(),
-        })
-        _wallet_ops_add({
-            "type": "WITHDRAWAL_REQUEST",
-            "withdrawal_id": withdrawal_id,
-            "wallet_address": wallet_addr,
-            "amount_psc": amount_psc,
-            "amount_kes": amount_kes,
-            "method": method,
-            "destination": destination,
-            "source": _source,
-            "status": "PENDING_ADMIN",
-            "created_at": _now(),
-        })
-        _admin_ledger_add({
-            "type": "WITHDRAWAL_REQUEST_HIGHVALUE",
-            "withdrawal_id": withdrawal_id,
-            "wallet_address": wallet_addr,
-            "name": client.get("name", ""),
-            "phone": client.get("phone", ""),
-            "amount_psc": amount_psc,
-            "amount_kes": amount_kes,
-            "method": method,
-            "destination": destination,
-            "source": _source,
-            "status": "PENDING_ADMIN",
-            "time": _now(),
-        })
-
-        return jsonify({
-            "success": True,
-            "withdrawal_id": withdrawal_id,
-            "status": "PENDING_ADMIN",
-            "amount_psc": amount_psc,
-            "amount_kes": amount_kes,
-            "method": method,
-            "source": _source,
-            "daily_max_kes": WALLET_WITHDRAW_DAILY_MAX_KES,
-            "used_today_kes": used_today + amount_kes,
-            "message": (f"Withdrawal {withdrawal_id} created for KES {amount_kes:.2f}. "
-                        f"Admin confirmation is required."),
-            "ui": {
-                "title": "Withdrawal Request",
-                "status": "PENDING_ADMIN",
-                "confirm_label": "Admin: Confirm & Pay",
-            },
-        })
-    except Exception as e:
-        return jsonify({"success": False, "message": str(e)}), 500
-
-
-@app.route("/api/wallet/withdraw/daily-usage/<wallet_addr>", methods=["GET"])
-def api_wallet_withdraw_daily_usage(wallet_addr):
-    used = _wallet_withdraw_today_kes(wallet_addr)
-    return jsonify({
-        "success": True,
-        "daily_max_kes": WALLET_WITHDRAW_DAILY_MAX_KES,
-        "used_today_kes": used,
-        "remaining_today_kes": round(max(0.0, WALLET_WITHDRAW_DAILY_MAX_KES - used), 2),
-    })
-
-
-@app.route("/api/admin/wallet/withdraw/confirm", methods=["POST"])
-def api_admin_wallet_withdraw_confirm():
-    try:
-        sent = request.headers.get("X-PSC-Admin-Token", "")
-        if not PSC_ADMIN_TOKEN or not hmac.compare_digest(sent, PSC_ADMIN_TOKEN):
-            return jsonify({"success": False, "message": "forbidden"}), 403
-
-        data = request.get_json() or {}
-        wid = str(data.get("withdrawal_id") or "").strip()
-        action = str(data.get("action") or "PAID").strip().upper()
-        code = str(data.get("mpesa_code") or data.get("reference") or "").strip()
-
-        if not wid:
-            return jsonify({"success": False, "message": "withdrawal_id required"}), 400
-
-        row = _wq_find(wid)
-        if not row:
-            return jsonify({"success": False, "message": "withdrawal not found"}), 404
-        if row.get("status") in ("PAID", "REJECTED"):
-            return jsonify({"success": True, "withdrawal": row,
-                            "message": f"Already {row.get('status')}"}), 200
-
-        amount_psc = float(row.get("amount_psc") or 0)
-        amount_kes = float(row.get("amount_kes") or 0)
-        wallet_addr = row.get("wallet_address")
-
-        if action == "REJECTED":
-            _wallet_release_or_settle(wallet_addr, amount_psc, wid, "REJECTED")
-            _wq_update(wid, status="REJECTED", settled_at=_now(),
-                       admin_note=str(data.get("note") or "").strip())
-            _wallet_ops_add({
-                "type": "WITHDRAWAL_PAID",
-                "withdrawal_id": wid,
-                "wallet_address": wallet_addr,
-                "amount_psc": amount_psc,
-                "amount_kes": amount_kes,
-                "status": "REJECTED",
-                "created_at": _now(),
-            })
-            return jsonify({"success": True, "withdrawal": _wq_find(wid),
-                            "message": "Withdrawal rejected; funds returned."})
-
-        if PAYOUTS_LIVE:
-            ok, info, err = _flw_transfer(row)
-            if not ok:
-                return jsonify({"success": False,
-                                "message": err or "Flutterwave transfer failed",
-                                "withdrawal": _wq_find(wid)}), 502
-            transfer_id = (info.get("data") or {}).get("id") if isinstance(info, dict) else None
-            _wq_update(wid, status="PAID", settled_at=_now(),
-                       transfer_id=transfer_id, mode="auto", flw_response=info)
-        else:
-            _wq_update(wid, status="PAID", settled_at=_now(),
-                       mpesa_code=code, mode="manual")
-
-        _wallet_release_or_settle(wallet_addr, amount_psc, wid, "PAID")
-        _ledger_update(wid, status="PAID", settled_at=_now(),
-                       mode=("auto" if PAYOUTS_LIVE else "manual"), reference=code)
-        _audit_add({
-            "withdrawal_id": wid, "amount_kes": amount_kes,
-            "method": row.get("method"),
-            "at": _now(), "mode": ("auto" if PAYOUTS_LIVE else "manual"),
-            "result": "SUCCESS", "reference": code,
-        })
-        _wallet_ops_add({
-            "type": "WITHDRAWAL_PAID",
-            "withdrawal_id": wid,
-            "wallet_address": wallet_addr,
-            "amount_psc": amount_psc,
-            "amount_kes": amount_kes,
-            "status": "COMPLETED",
-            "created_at": _now(),
-        })
-        _record_payout_velocity(wallet_addr, amount_kes, "CONFIRMED")
-        _maybe_cbk_report(row, amount_kes)
-
-        return jsonify({"success": True, "withdrawal": _wq_find(wid),
-                        "message": "Withdrawal confirmed and settled."})
-    except Exception as e:
-        return jsonify({"success": False, "message": str(e)}), 500
-
-
-# ============================================================
-# END WALLET UPGRADE LAYER
-# ============================================================
-
-
-# ============================================================
-# SAVINGS SUB-BALANCE â€” ADDITIVE
-# ============================================================
-
-WALLET_SAVINGS_ENABLED       = os.getenv("WALLET_SAVINGS_ENABLED", "1").strip() == "1"
-WALLET_SAVINGS_MIN_MOVE_PSC  = float(os.getenv("WALLET_SAVINGS_MIN_MOVE_PSC", "0.01") or 0.01)
-WALLET_SAVINGS_MIN_LEAVE_PSC = float(os.getenv("WALLET_SAVINGS_MIN_LEAVE_PSC", "1.00") or 1.00)
-
-WALLET_SAVINGS_OPS_FILE = os.path.join(
-    os.path.dirname(PAYMENTS_FILE) or ".",
-    "wallet_savings_ops.json"
-)
-
-_WALLET_SAVINGS_LOCK = threading.Lock()
-
-
-def _savings_ops_all():
-    d = _jload(WALLET_SAVINGS_OPS_FILE, [])
-    return d if isinstance(d, list) else []
-
-
-def _savings_ops_add(row):
-    with _WALLET_SAVINGS_LOCK:
-        rows = _savings_ops_all()
-        rows.append(row)
-        _jsave(WALLET_SAVINGS_OPS_FILE, rows)
-
-
-def _savings_stats(wallet_addr):
-    rows = [r for r in _savings_ops_all() if r.get("wallet_address") == wallet_addr]
-    total_in = sum(float(r.get("amount_psc") or 0) for r in rows if r.get("direction") == "IN")
-    total_out = sum(float(r.get("amount_psc") or 0) for r in rows if r.get("direction") == "OUT")
-    return {
-        "in_psc": round(total_in, 2),
-        "out_psc": round(total_out, 2),
-        "net_psc": round(total_in - total_out, 2),
-        "events": len(rows),
-    }
-
-
-@app.route("/api/wallet/savings/<wallet_addr>", methods=["GET"])
-def api_wallet_savings_get(wallet_addr):
-    wallet = get_wallet(wallet_addr)
-    if not wallet:
-        return jsonify({"success": False, "message": "Wallet not found."}), 404
-    return jsonify({
-        "success": True,
-        "wallet": wallet_addr,
-        "savings_psc": round(float(wallet.get("savings_psc", 0) or 0), 2),
-        "savings_value_kes": round(float(wallet.get("savings_psc", 0) or 0) * PSC_TO_KES_RATE, 2),
-        "wallet_psc": round(float(wallet.get("wallet_psc", 0) or 0), 2),
-        "deposit_psc": round(float(wallet.get("deposit_psc", 0) or 0), 2),
-        "bonus_psc": round(float(wallet.get("bonus_psc", 0) or 0), 2),
-        "history": [r for r in _savings_ops_all() if r.get("wallet_address") == wallet_addr],
-        "stats": _savings_stats(wallet_addr),
-        "psc_to_kes_rate": PSC_TO_KES_RATE,
-        "enabled": WALLET_SAVINGS_ENABLED,
-        "min_move_psc": WALLET_SAVINGS_MIN_MOVE_PSC,
-        "min_leave_psc": WALLET_SAVINGS_MIN_LEAVE_PSC,
-    })
-
-
-@app.route("/api/wallet/savings/move_in", methods=["POST"])
-def api_wallet_savings_move_in():
-    if not WALLET_SAVINGS_ENABLED:
-        return jsonify({"success": False,
-                        "message": "Savings is disabled (WALLET_SAVINGS_ENABLED=0)."}), 503
-    try:
-        data = request.get_json() or {}
-        session_wallet = session.get("wallet", "")
-        wallet_addr = str(data.get("wallet") or session_wallet or "").strip()
-        if not wallet_addr:
-            return jsonify({"success": False, "message": "Wallet is required."}), 400
-        if session_wallet and wallet_addr != session_wallet:
-            return jsonify({"success": False, "message": "Wallet mismatch."}), 403
-
-        amount_psc = round(float(data.get("amount_psc") or 0), 2)
-        if amount_psc < WALLET_SAVINGS_MIN_MOVE_PSC:
-            return jsonify({"success": False,
-                            "message": f"Minimum move-in is {WALLET_SAVINGS_MIN_MOVE_PSC} PSC."}), 400
-
-        wallet = get_wallet(wallet_addr)
-        if not wallet:
-            return jsonify({"success": False, "message": "Wallet not found."}), 404
-
-        available = round(float(wallet.get("wallet_psc", 0) or 0), 2)
-        if available - amount_psc < WALLET_SAVINGS_MIN_LEAVE_PSC - 1e-9:
-            return jsonify({
-                "success": False,
-                "message": (f"At least {WALLET_SAVINGS_MIN_LEAVE_PSC:.2f} PSC must remain in your "
-                            f"spendable balance. Available: {available:.2f} PSC. "
-                            f"Maximum movable: {max(0.0, available - WALLET_SAVINGS_MIN_LEAVE_PSC):.2f} PSC."),
-                "wallet_psc": available,
-                "max_move_psc": round(max(0.0, available - WALLET_SAVINGS_MIN_LEAVE_PSC), 2),
-            }), 400
-
-        wallet["wallet_psc"] = round(available - amount_psc, 2)
-        wallet["savings_psc"] = round(float(wallet.get("savings_psc", 0) or 0) + amount_psc, 2)
-        wallet["balance"] = _wallet_total(wallet)
-        _save_wallet(wallet)
-
-        _admin_merge_wallet(
-            address=wallet_addr,
-            purchased_psc=wallet.get("wallet_psc", 0),
-            bonus_psc=wallet.get("bonus_psc", 0),
-            savings_psc=wallet.get("savings_psc", 0),
-            deposit_psc=wallet.get("deposit_psc", 0),
-        )
-        _savings_ops_add({
-            "type": "SAVINGS_MOVE_IN",
-            "direction": "IN",
-            "wallet_address": wallet_addr,
-            "amount_psc": amount_psc,
-            "amount_kes": round(amount_psc * PSC_TO_KES_RATE, 2),
-            "wallet_psc_after": wallet["wallet_psc"],
-            "savings_psc_after": wallet["savings_psc"],
-            "created_at": _now(),
-        })
-        _admin_ledger_add({
-            "type": "SAVINGS_MOVE_IN",
-            "wallet_address": wallet_addr,
-            "amount_psc": amount_psc,
-            "amount_kes": round(amount_psc * PSC_TO_KES_RATE, 2),
-            "time": _now(),
-        })
-
-        return jsonify({
-            "success": True,
-            "wallet": wallet_addr,
-            "wallet_psc": wallet["wallet_psc"],
-            "savings_psc": wallet["savings_psc"],
-            "bonus_psc": wallet["bonus_psc"],
-            "deposit_psc": wallet.get("deposit_psc", 0),
-            "balance": wallet["balance"],
-            "moved_psc": amount_psc,
-            "moved_kes": round(amount_psc * PSC_TO_KES_RATE, 2),
-            "psc_to_kes_rate": PSC_TO_KES_RATE,
-            "message": (f"Moved {amount_psc:.2f} PSC (KES {amount_psc * PSC_TO_KES_RATE:.2f}) "
-                        f"into savings."),
-        })
-    except Exception as e:
-        return jsonify({"success": False, "message": str(e)}), 500
-
-
-@app.route("/api/wallet/savings/move_out", methods=["POST"])
-def api_wallet_savings_move_out():
-    if not WALLET_SAVINGS_ENABLED:
-        return jsonify({"success": False,
-                        "message": "Savings is disabled (WALLET_SAVINGS_ENABLED=0)."}), 503
-    try:
-        data = request.get_json() or {}
-        session_wallet = session.get("wallet", "")
-        wallet_addr = str(data.get("wallet") or session_wallet or "").strip()
-        if not wallet_addr:
-            return jsonify({"success": False, "message": "Wallet is required."}), 400
-        if session_wallet and wallet_addr != session_wallet:
-            return jsonify({"success": False, "message": "Wallet mismatch."}), 403
-
-        amount_psc = round(float(data.get("amount_psc") or 0), 2)
-        if amount_psc < WALLET_SAVINGS_MIN_MOVE_PSC:
-            return jsonify({"success": False,
-                            "message": f"Minimum move-out is {WALLET_SAVINGS_MIN_MOVE_PSC} PSC."}), 400
-
-        wallet = get_wallet(wallet_addr)
-        if not wallet:
-            return jsonify({"success": False, "message": "Wallet not found."}), 404
-
-        savings = round(float(wallet.get("savings_psc", 0) or 0), 2)
-        if savings + 1e-9 < amount_psc:
-            return jsonify({
-                "success": False,
-                "message": (f"Insufficient savings. You have {savings:.2f} PSC in savings, "
-                            f"cannot move {amount_psc:.2f} PSC out."),
-                "savings_psc": savings,
-            }), 400
-
-        wallet["savings_psc"] = round(savings - amount_psc, 2)
-        wallet["wallet_psc"] = round(float(wallet.get("wallet_psc", 0) or 0) + amount_psc, 2)
-        wallet["balance"] = _wallet_total(wallet)
-        _save_wallet(wallet)
-
-        _admin_merge_wallet(
-            address=wallet_addr,
-            purchased_psc=wallet.get("wallet_psc", 0),
-            bonus_psc=wallet.get("bonus_psc", 0),
-            savings_psc=wallet.get("savings_psc", 0),
-            deposit_psc=wallet.get("deposit_psc", 0),
-        )
-        _savings_ops_add({
-            "type": "SAVINGS_MOVE_OUT",
-            "direction": "OUT",
-            "wallet_address": wallet_addr,
-            "amount_psc": amount_psc,
-            "amount_kes": round(amount_psc * PSC_TO_KES_RATE, 2),
-            "wallet_psc_after": wallet["wallet_psc"],
-            "savings_psc_after": wallet["savings_psc"],
-            "created_at": _now(),
-        })
-        _admin_ledger_add({
-            "type": "SAVINGS_MOVE_OUT",
-            "wallet_address": wallet_addr,
-            "amount_psc": amount_psc,
-            "amount_kes": round(amount_psc * PSC_TO_KES_RATE, 2),
-            "time": _now(),
-        })
-
-        return jsonify({
-            "success": True,
-            "wallet": wallet_addr,
-            "wallet_psc": wallet["wallet_psc"],
-            "savings_psc": wallet["savings_psc"],
-            "bonus_psc": wallet["bonus_psc"],
-            "deposit_psc": wallet.get("deposit_psc", 0),
-            "balance": wallet["balance"],
-            "moved_psc": amount_psc,
-            "moved_kes": round(amount_psc * PSC_TO_KES_RATE, 2),
-            "psc_to_kes_rate": PSC_TO_KES_RATE,
-            "message": (f"Moved {amount_psc:.2f} PSC (KES {amount_psc * PSC_TO_KES_RATE:.2f}) "
-                        f"back to your spendable balance."),
-        })
-    except Exception as e:
-        return jsonify({"success": False, "message": str(e)}), 500
-
-
-# ============================================================
-# ADDITIVE (Option C) â€” DEPOSIT PSC POCKET (HOLD-ONLY)
-# ============================================================
-
-WALLET_DEPOSIT_POCKET_ENABLED     = os.getenv("WALLET_DEPOSIT_POCKET_ENABLED", "1").strip() == "1"
-WALLET_DEPOSIT_POCKET_MIN_MOVE_PSC = float(os.getenv("WALLET_DEPOSIT_POCKET_MIN_MOVE_PSC", "0.01") or 0.01)
-WALLET_DEPOSIT_POCKET_MIN_LEAVE_PSC = float(os.getenv("WALLET_DEPOSIT_POCKET_MIN_LEAVE_PSC", "1.00") or 1.00)
-
-WALLET_DEPOSIT_POCKET_OPS_FILE = os.path.join(
-    os.path.dirname(PAYMENTS_FILE) or ".",
-    "wallet_deposit_pocket_ops.json"
-)
-
-_WALLET_DEPOSIT_POCKET_LOCK = threading.Lock()
-
-
-def _deposit_pocket_ops_all():
-    d = _jload(WALLET_DEPOSIT_POCKET_OPS_FILE, [])
-    return d if isinstance(d, list) else []
-
-
-def _deposit_pocket_ops_add(row):
-    with _WALLET_DEPOSIT_POCKET_LOCK:
-        rows = _deposit_pocket_ops_all()
-        rows.append(row)
-        _jsave(WALLET_DEPOSIT_POCKET_OPS_FILE, rows)
-
-
-def _deposit_pocket_stats(wallet_addr):
-    rows = [r for r in _deposit_pocket_ops_all() if r.get("wallet_address") == wallet_addr]
-    total_in = sum(float(r.get("amount_psc") or 0) for r in rows if r.get("direction") == "IN")
-    total_out = sum(float(r.get("amount_psc") or 0) for r in rows if r.get("direction") == "OUT")
-    return {
-        "in_psc": round(total_in, 2),
-        "out_psc": round(total_out, 2),
-        "net_psc": round(total_in - total_out, 2),
-        "events": len(rows),
-    }
-
-
-@app.route("/api/wallet/deposit_pocket/<wallet_addr>", methods=["GET"])
-def api_wallet_deposit_pocket_get(wallet_addr):
-    wallet = get_wallet(wallet_addr)
-    if not wallet:
-        return jsonify({"success": False, "message": "Wallet not found."}), 404
-    return jsonify({
-        "success": True,
-        "wallet": wallet_addr,
-        "deposit_psc": round(float(wallet.get("deposit_psc", 0) or 0), 2),
-        "deposit_value_kes": round(float(wallet.get("deposit_psc", 0) or 0) * PSC_TO_KES_RATE, 2),
-        "wallet_psc": round(float(wallet.get("wallet_psc", 0) or 0), 2),
-        "savings_psc": round(float(wallet.get("savings_psc", 0) or 0), 2),
-        "bonus_psc": round(float(wallet.get("bonus_psc", 0) or 0), 2),
-        "history": [r for r in _deposit_pocket_ops_all() if r.get("wallet_address") == wallet_addr],
-        "stats": _deposit_pocket_stats(wallet_addr),
-        "psc_to_kes_rate": PSC_TO_KES_RATE,
-        "enabled": WALLET_DEPOSIT_POCKET_ENABLED,
-        "min_move_psc": WALLET_DEPOSIT_POCKET_MIN_MOVE_PSC,
-        "min_leave_psc": WALLET_DEPOSIT_POCKET_MIN_LEAVE_PSC,
-    })
-
-
-@app.route("/api/wallet/deposit/move_in", methods=["POST"])
-def api_wallet_deposit_move_in():
-    """Move spendable PSC -> deposit_psc (hold-only pocket)."""
-    if not WALLET_DEPOSIT_POCKET_ENABLED:
-        return jsonify({"success": False,
-                        "message": "Deposit pocket is disabled (WALLET_DEPOSIT_POCKET_ENABLED=0)."}), 503
-    try:
-        data = request.get_json() or {}
-        session_wallet = session.get("wallet", "")
-        wallet_addr = str(data.get("wallet") or session_wallet or "").strip()
-        if not wallet_addr:
-            return jsonify({"success": False, "message": "Wallet is required."}), 400
-        if session_wallet and wallet_addr != session_wallet:
-            return jsonify({"success": False, "message": "Wallet mismatch."}), 403
-
-        amount_psc = round(float(data.get("amount_psc") or 0), 2)
-        if amount_psc < WALLET_DEPOSIT_POCKET_MIN_MOVE_PSC:
-            return jsonify({"success": False,
-                            "message": f"Minimum move-in is {WALLET_DEPOSIT_POCKET_MIN_MOVE_PSC} PSC."}), 400
-
-        wallet = get_wallet(wallet_addr)
-        if not wallet:
-            return jsonify({"success": False, "message": "Wallet not found."}), 404
-
-        available = round(float(wallet.get("wallet_psc", 0) or 0), 2)
-        if available - amount_psc < WALLET_DEPOSIT_POCKET_MIN_LEAVE_PSC - 1e-9:
-            return jsonify({
-                "success": False,
-                "message": (f"At least {WALLET_DEPOSIT_POCKET_MIN_LEAVE_PSC:.2f} PSC must remain in your "
-                            f"spendable balance. Available: {available:.2f} PSC. "
-                            f"Maximum movable: {max(0.0, available - WALLET_DEPOSIT_POCKET_MIN_LEAVE_PSC):.2f} PSC."),
-                "wallet_psc": available,
-                "max_move_psc": round(max(0.0, available - WALLET_DEPOSIT_POCKET_MIN_LEAVE_PSC), 2),
-            }), 400
-
-        wallet["wallet_psc"] = round(available - amount_psc, 2)
-        wallet["deposit_psc"] = round(float(wallet.get("deposit_psc", 0) or 0) + amount_psc, 2)
-        wallet["balance"] = _wallet_total(wallet)
-        _save_wallet(wallet)
-
-        _admin_merge_wallet(
-            address=wallet_addr,
-            purchased_psc=wallet.get("wallet_psc", 0),
-            bonus_psc=wallet.get("bonus_psc", 0),
-            savings_psc=wallet.get("savings_psc", 0),
-            deposit_psc=wallet.get("deposit_psc", 0),
-        )
-        _deposit_pocket_ops_add({
-            "type": "DEPOSIT_POCKET_MOVE_IN",
-            "direction": "IN",
-            "wallet_address": wallet_addr,
-            "amount_psc": amount_psc,
-            "amount_kes": round(amount_psc * PSC_TO_KES_RATE, 2),
-            "wallet_psc_after": wallet["wallet_psc"],
-            "deposit_psc_after": wallet["deposit_psc"],
-            "created_at": _now(),
-        })
-        _admin_ledger_add({
-            "type": "DEPOSIT_POCKET_MOVE_IN",
-            "wallet_address": wallet_addr,
-            "amount_psc": amount_psc,
-            "amount_kes": round(amount_psc * PSC_TO_KES_RATE, 2),
-            "time": _now(),
-        })
-
-        return jsonify({
-            "success": True,
-            "wallet": wallet_addr,
-            "wallet_psc": wallet["wallet_psc"],
-            "savings_psc": wallet["savings_psc"],
-            "deposit_psc": wallet["deposit_psc"],
-            "bonus_psc": wallet["bonus_psc"],
-            "balance": wallet["balance"],
-            "moved_psc": amount_psc,
-            "moved_kes": round(amount_psc * PSC_TO_KES_RATE, 2),
-            "psc_to_kes_rate": PSC_TO_KES_RATE,
-            "message": (f"Moved {amount_psc:.2f} PSC (KES {amount_psc * PSC_TO_KES_RATE:.2f}) "
-                        f"into the Deposit PSC pocket. It is hold-only and not spent by shopping."),
-        })
-    except Exception as e:
-        return jsonify({"success": False, "message": str(e)}), 500
-
-
-@app.route("/api/wallet/deposit/move_out", methods=["POST"])
-def api_wallet_deposit_move_out():
-    """Move deposit_psc (hold-only) -> spendable wallet_psc."""
-    if not WALLET_DEPOSIT_POCKET_ENABLED:
-        return jsonify({"success": False,
-                        "message": "Deposit pocket is disabled (WALLET_DEPOSIT_POCKET_ENABLED=0)."}), 503
-    try:
-        data = request.get_json() or {}
-        session_wallet = session.get("wallet", "")
-        wallet_addr = str(data.get("wallet") or session_wallet or "").strip()
-        if not wallet_addr:
-            return jsonify({"success": False, "message": "Wallet is required."}), 400
-        if session_wallet and wallet_addr != session_wallet:
-            return jsonify({"success": False, "message": "Wallet mismatch."}), 403
-
-        amount_psc = round(float(data.get("amount_psc") or 0), 2)
-        if amount_psc < WALLET_DEPOSIT_POCKET_MIN_MOVE_PSC:
-            return jsonify({"success": False,
-                            "message": f"Minimum move-out is {WALLET_DEPOSIT_POCKET_MIN_MOVE_PSC} PSC."}), 400
-
-        wallet = get_wallet(wallet_addr)
-        if not wallet:
-            return jsonify({"success": False, "message": "Wallet not found."}), 404
-
-        deposit_avail = round(float(wallet.get("deposit_psc", 0) or 0), 2)
-        if deposit_avail + 1e-9 < amount_psc:
-            return jsonify({
-                "success": False,
-                "message": (f"Insufficient deposit PSC. You have {deposit_avail:.2f} PSC in the "
-                            f"deposit pocket, cannot move {amount_psc:.2f} PSC out."),
-                "deposit_psc": deposit_avail,
-            }), 400
-
-        wallet["deposit_psc"] = round(deposit_avail - amount_psc, 2)
-        wallet["wallet_psc"] = round(float(wallet.get("wallet_psc", 0) or 0) + amount_psc, 2)
-        wallet["balance"] = _wallet_total(wallet)
-        _save_wallet(wallet)
-
-        _admin_merge_wallet(
-            address=wallet_addr,
-            purchased_psc=wallet.get("wallet_psc", 0),
-            bonus_psc=wallet.get("bonus_psc", 0),
-            savings_psc=wallet.get("savings_psc", 0),
-            deposit_psc=wallet.get("deposit_psc", 0),
-        )
-        _deposit_pocket_ops_add({
-            "type": "DEPOSIT_POCKET_MOVE_OUT",
-            "direction": "OUT",
-            "wallet_address": wallet_addr,
-            "amount_psc": amount_psc,
-            "amount_kes": round(amount_psc * PSC_TO_KES_RATE, 2),
-            "wallet_psc_after": wallet["wallet_psc"],
-            "deposit_psc_after": wallet["deposit_psc"],
-            "created_at": _now(),
-        })
-        _admin_ledger_add({
-            "type": "DEPOSIT_POCKET_MOVE_OUT",
-            "wallet_address": wallet_addr,
-            "amount_psc": amount_psc,
-            "amount_kes": round(amount_psc * PSC_TO_KES_RATE, 2),
-            "time": _now(),
-        })
-
-        return jsonify({
-            "success": True,
-            "wallet": wallet_addr,
-            "wallet_psc": wallet["wallet_psc"],
-            "savings_psc": wallet["savings_psc"],
-            "deposit_psc": wallet["deposit_psc"],
-            "bonus_psc": wallet["bonus_psc"],
-            "balance": wallet["balance"],
-            "moved_psc": amount_psc,
-            "moved_kes": round(amount_psc * PSC_TO_KES_RATE, 2),
-            "psc_to_kes_rate": PSC_TO_KES_RATE,
-            "message": (f"Moved {amount_psc:.2f} PSC (KES {amount_psc * PSC_TO_KES_RATE:.2f}) "
-                        f"out of the Deposit PSC pocket into spendable balance."),
-        })
-    except Exception as e:
-        return jsonify({"success": False, "message": str(e)}), 500
-
-
-# ============================================================
-# END DEPOSIT PSC POCKET (Option C)
-# ============================================================
-
-
-@app.route("/api/wallet/overview/<wallet_addr>", methods=["GET"])
-def api_wallet_overview(wallet_addr):
-    wallet = get_wallet(wallet_addr)
-    if not wallet:
-        return jsonify({"success": False, "message": "Wallet not found."}), 404
-
-    withdraw_used = _wallet_withdraw_today_kes(wallet_addr)
-    deposit_today = _wallet_deposit_today_kes(wallet_addr)
-    transfer_today = _wallet_transfer_today_psc(wallet_addr)
-
-    return jsonify({
-        "success": True,
-        "wallet": wallet_addr,
-        "balances": {
-            "wallet_psc": round(float(wallet.get("wallet_psc", 0) or 0), 2),
-            "savings_psc": round(float(wallet.get("savings_psc", 0) or 0), 2),
-            "deposit_psc": round(float(wallet.get("deposit_psc", 0) or 0), 2),
-            "bonus_psc": round(float(wallet.get("bonus_psc", 0) or 0), 2),
-            "daily_login_bonus_psc": round(float(wallet.get("daily_login_bonus_psc", 0) or 0), 2),
-            "held_psc": round(float(wallet.get("held_psc", 0) or 0), 2),
-            "total_psc": round(_wallet_total(wallet), 2),
-            "total_kes": round(_wallet_total(wallet) * PSC_TO_KES_RATE, 2),
-        },
-        "values_kes": {
-            "wallet_psc": round(float(wallet.get("wallet_psc", 0) or 0) * PSC_TO_KES_RATE, 2),
-            "savings_psc": round(float(wallet.get("savings_psc", 0) or 0) * PSC_TO_KES_RATE, 2),
-            "deposit_psc": round(float(wallet.get("deposit_psc", 0) or 0) * PSC_TO_KES_RATE, 2),
-            "bonus_psc": round(float(wallet.get("bonus_psc", 0) or 0) * PSC_TO_KES_RATE, 2),
-            "total_psc": round(_wallet_total(wallet) * PSC_TO_KES_RATE, 2),
-        },
-        "daily_usage": {
-            "withdraw_used_kes": withdraw_used,
-            "withdraw_max_kes": WALLET_WITHDRAW_DAILY_MAX_KES,
-            "withdraw_remaining_kes": round(max(0.0, WALLET_WITHDRAW_DAILY_MAX_KES - withdraw_used), 2),
-            "deposit_today_kes": deposit_today,
-            "deposit_max_kes": WALLET_DEPOSIT_MAX_KES,
-            "transfer_today_psc": transfer_today,
-            "transfer_daily_max_psc": WALLET_TRANSFER_DAILY_MAX_PSC,
-        },
-        "limits": {
-            "deposit_max_kes": WALLET_DEPOSIT_MAX_KES,
-            "withdraw_daily_max_kes": WALLET_WITHDRAW_DAILY_MAX_KES,
-            "transfer_min_psc": WALLET_TRANSFER_MIN_PSC,
-            "transfer_max_psc": WALLET_TRANSFER_MAX_PSC,
-            "transfer_daily_max_psc": WALLET_TRANSFER_DAILY_MAX_PSC,
-            "savings_min_move_psc": WALLET_SAVINGS_MIN_MOVE_PSC,
-            "savings_min_leave_psc": WALLET_SAVINGS_MIN_LEAVE_PSC,
-            "deposit_pocket_min_move_psc": WALLET_DEPOSIT_POCKET_MIN_MOVE_PSC,
-            "deposit_pocket_min_leave_psc": WALLET_DEPOSIT_POCKET_MIN_LEAVE_PSC,
-            # === GAP FIX #1 ===
-            "min_balance_to_shop": MIN_BALANCE_TO_SHOP,
-        },
-        "psc_to_kes_rate": PSC_TO_KES_RATE,
-        "savings_enabled": WALLET_SAVINGS_ENABLED,
-        "deposit_pocket_enabled": WALLET_DEPOSIT_POCKET_ENABLED,
-    })
-
-
-@app.route("/api/wallet/ui/<wallet_addr>", methods=["GET"])
-def api_wallet_ui(wallet_addr):
-    wallet = get_wallet(wallet_addr)
-    if not wallet:
-        return jsonify({"success": False, "message": "Wallet not found."}), 404
-
-    balances = {
-        "wallet_psc": round(float(wallet.get("wallet_psc", 0) or 0), 2),
-        "savings_psc": round(float(wallet.get("savings_psc", 0) or 0), 2),
-        "deposit_psc": round(float(wallet.get("deposit_psc", 0) or 0), 2),
-        "bonus_psc": round(float(wallet.get("bonus_psc", 0) or 0), 2),
-        "daily_login_bonus_psc": round(float(wallet.get("daily_login_bonus_psc", 0) or 0), 2),
-        "held_psc": round(float(wallet.get("held_psc", 0) or 0), 2),
-        "total_psc": round(_wallet_total(wallet), 2),
-        "total_kes": round(_wallet_total(wallet) * PSC_TO_KES_RATE, 2),
-    }
-
-    actions = [
-        {
-            "key": "deposit",
-            "label": "Add Money",
-            "icon": "Ã¢Å¾â€¢",
-            "endpoint": "/api/wallet/deposit/initiate",
-            "method": "POST",
-            "fields": ["amount_kes", "channel", "gateway", "target"],
-            "channels": _wallet_ui_deposit_options(),
-            "targets": [
-                {"key": "spendable", "label": "Spendable PSC",
-                 "hint": "Used for shopping."},
-                {"key": "savings",   "label": "Savings PSC",
-                 "hint": "Parked; withdrawable only."},
-                {"key": "deposit",   "label": "Deposit PSC",
-                 "hint": "Hold-only; not spent by shopping."},
-            ],
-            "max_kes": WALLET_DEPOSIT_MAX_KES,
-            "hint": "Deposit from any bank, card or M-Pesa.",
-        },
-        {
-            "key": "transfer",
-            "label": "Send to another user",
-            "icon": "Ã°Å¸â€œÂ¤",
-            "endpoint": "/api/wallet/transfer",
-            "method": "POST",
-            "fields": ["recipient", "amount_psc"],
-            "min_psc": WALLET_TRANSFER_MIN_PSC,
-            "max_psc": WALLET_TRANSFER_MAX_PSC,
-            "daily_max_psc": WALLET_TRANSFER_DAILY_MAX_PSC,
-            "hint": "Recipient can be a phone number or a PSC wallet address.",
-        },
-        {
-            "key": "withdraw",
-            "label": "Withdraw to bank / M-Pesa",
-            "icon": "Ã°Å¸â€œÂ¥",
-            "endpoint": "/api/wallet/withdraw/highvalue",
-            "method": "POST",
-            "fields": ["amount_psc", "method", "destination", "bank_code"],
-            "daily_max_kes": WALLET_WITHDRAW_DAILY_MAX_KES,
-            "hint": "Admin confirmation is required before funds leave.",
-        },
-        {
-            "key": "save",
-            "label": "Move to Savings",
-            "icon": "Ã°Å¸â€â€™",
-            "endpoint": "/api/wallet/savings/move_in",
-            "method": "POST",
-            "fields": ["amount_psc"],
-            "min_move_psc": WALLET_SAVINGS_MIN_MOVE_PSC,
-            "min_leave_psc": WALLET_SAVINGS_MIN_LEAVE_PSC,
-            "enabled": WALLET_SAVINGS_ENABLED,
-            "hint": "Park PSC safely; savings is never touched by shopping.",
-        },
-        {
-            "key": "unsave",
-            "label": "Move back from Savings",
-            "icon": "Ã°Å¸â€â€œ",
-            "endpoint": "/api/wallet/savings/move_out",
-            "method": "POST",
-            "fields": ["amount_psc"],
-            "min_move_psc": WALLET_SAVINGS_MIN_MOVE_PSC,
-            "enabled": WALLET_SAVINGS_ENABLED,
-            "hint": "Return PSC from savings to your spendable balance.",
-        },
-        {
-            "key": "deposit_psc_in",
-            "label": "Move to Deposit PSC",
-            "icon": "Ã°Å¸Â§Å ",
-            "endpoint": "/api/wallet/deposit/move_in",
-            "method": "POST",
-            "fields": ["amount_psc"],
-            "min_move_psc": WALLET_DEPOSIT_POCKET_MIN_MOVE_PSC,
-            "min_leave_psc": WALLET_DEPOSIT_POCKET_MIN_LEAVE_PSC,
-            "enabled": WALLET_DEPOSIT_POCKET_ENABLED,
-            "hint": "Hold-only pocket; never spent by shopping.",
-        },
-        {
-            "key": "deposit_psc_out",
-            "label": "Move back from Deposit PSC",
-            "icon": "Ã°Å¸Â§Å ",
-            "endpoint": "/api/wallet/deposit/move_out",
-            "method": "POST",
-            "fields": ["amount_psc"],
-            "min_move_psc": WALLET_DEPOSIT_POCKET_MIN_MOVE_PSC,
-            "enabled": WALLET_DEPOSIT_POCKET_ENABLED,
-            "hint": "Return PSC from deposit pocket to spendable balance.",
-        },
-        {
-            "key": "redeem_daily_bonus",
-            "label": "Redeem daily bonus",
-            "icon": "Ã°Å¸Å½Â",
-            "endpoint": "/api/wallet/redeem_daily_bonus",
-            "method": "POST",
-            "fields": [],
-            "hint": "Move your daily bonus into spendable balance.",
-        },
-    ]
-
-    return jsonify({
-        "success": True,
-        "wallet": wallet_addr,
-        "balances": balances,
-        "actions": actions,
-        "psc_to_kes_rate": PSC_TO_KES_RATE,
-        "currency": "KES",
-        # === GAP FIX #1 ===
-        "min_balance_to_shop": MIN_BALANCE_TO_SHOP,
-        "updated_at": _now(),
+        "gateways": [],
+        "message": "Payment gateways are disabled. PSC can only be obtained via admin credit, P2P transfer, mining rewards, or bonus.",
     })
 
 
 # ============================================================
-# END SAVINGS SUB-BALANCE
+# BLOCKCHAIN MINING + REAL-TIME WEBSOCKET
 # ============================================================
 
-
-# ============================================================
-# PAYMENT LINKS - ADDITIVE
-# ============================================================
-
-PAYMENT_LINKS_FILE = os.path.join(
-    os.path.dirname(PAYMENTS_FILE) or ".",
-    "payment_links.json"
-)
-
-_PAYMENT_LINKS_LOCK = threading.Lock()
-
-PAYMENT_LINK_DEFAULT_TTL_HOURS = int(
-    os.getenv("PAYMENT_LINK_DEFAULT_TTL_HOURS", "168") or 168
-)
-PAYMENT_LINK_MIN_KES = float(os.getenv("PAYMENT_LINK_MIN_KES", "10") or 10)
-PAYMENT_LINK_MAX_KES = float(os.getenv("PAYMENT_LINK_MAX_KES", "0") or 0)
-
-
-def _payment_links_all():
-    d = _jload(PAYMENT_LINKS_FILE, {})
-    return d if isinstance(d, dict) else {}
-
-
-def _payment_link_save(d):
-    _jsave(PAYMENT_LINKS_FILE, d)
-
-
-def _payment_link_get(token):
-    return _payment_links_all().get(str(token or "").strip())
-
-
-def _payment_link_upsert(token, row):
-    with _PAYMENT_LINKS_LOCK:
-        d = _payment_links_all()
-        d[str(token)] = row
-        _payment_link_save(d)
-
-
-def _payment_link_is_usable(row, now=None):
-    if not row:
-        return False, "Link not found."
-    if row.get("status") != "ACTIVE":
-        return False, "Link is " + str(row.get("status")) + "."
-    now = now or datetime.now()
-    exp = row.get("expires_at")
-    if exp:
-        try:
-            if datetime.strptime(exp, "%Y-%m-%d %H:%M:%S") < now:
-                return False, "Link has expired."
-        except Exception:
-            pass
-    cap_psc = float(row.get("cap_psc") or 0)
-    if cap_psc > 0:
-        collected = float(row.get("collected_psc") or 0)
-        if collected >= cap_psc - 1e-9:
-            return False, "This payment link has reached its collection cap."
-    return True, "OK"
-
-
-@app.route("/api/payment_link/create", methods=["POST"])
-def api_payment_link_create():
-    try:
-        data = request.get_json() or {}
-        session_wallet = session.get("wallet", "")
-        sent_token = request.headers.get("X-PSC-Admin-Token", "")
-        is_admin = bool(PSC_ADMIN_TOKEN) and hmac.compare_digest(sent_token, PSC_ADMIN_TOKEN)
-
-        if is_admin:
-            wallet_addr = str(data.get("wallet") or "").strip()
-            if not wallet_addr:
-                return jsonify({"success": False,
-                                "message": "wallet is required for admin-created links."}), 400
-        else:
-            wallet_addr = str(session_wallet or "").strip()
-            if not wallet_addr:
-                return jsonify({"success": False,
-                                "message": "Please log in first to create a payment link."}), 401
-
-        wallet = get_wallet(wallet_addr)
-        if not wallet:
-            return jsonify({"success": False, "message": "Wallet not found."}), 404
-
-        amount_kes = 0.0
-        if data.get("amount_kes") not in (None, "", 0, "0"):
-            try:
-                amount_kes = round(float(data.get("amount_kes")), 2)
-            except (TypeError, ValueError):
-                return jsonify({"success": False, "message": "amount_kes must be a number."}), 400
-            if amount_kes < PAYMENT_LINK_MIN_KES:
-                return jsonify({"success": False,
-                                "message": "Minimum amount is KES %.2f." % PAYMENT_LINK_MIN_KES}), 400
-            if PAYMENT_LINK_MAX_KES > 0 and amount_kes > PAYMENT_LINK_MAX_KES + 1e-9:
-                return jsonify({"success": False,
-                                "message": "Maximum amount is KES %.2f." % PAYMENT_LINK_MAX_KES}), 400
-
-        target = _normalize_credit_target(data.get("target") or "spendable")
-
-        _rc = str(data.get("receive_currency") or "").strip().upper()
-        if _rc and _rc not in COINGATE_ALLOWED_CURRENCIES:
-            _rc = ""
-        receive_currency = _rc
-
-        gateway = str(data.get("gateway") or "paystack").strip().lower()
-        if gateway not in ("paystack", "coingate"):
-            gateway = "paystack"
-
-        try:
-            ttl_hours = int(data.get("ttl_hours") or PAYMENT_LINK_DEFAULT_TTL_HOURS)
-        except (TypeError, ValueError):
-            ttl_hours = PAYMENT_LINK_DEFAULT_TTL_HOURS
-        if ttl_hours < 1:
-            ttl_hours = PAYMENT_LINK_DEFAULT_TTL_HOURS
-
-        cap_psc = 0.0
-        if is_admin and data.get("cap_psc") not in (None, "", 0, "0"):
-            try:
-                cap_psc = round(float(data.get("cap_psc")), 2)
-            except (TypeError, ValueError):
-                cap_psc = 0.0
-
-        token = uuid.uuid4().hex[:24]
-        now = datetime.now()
-        row = {
-            "token": token,
-            "wallet_address": wallet_addr,
-            "amount_kes": amount_kes,
-            "target": target,
-            "gateway": gateway,
-            "receive_currency": receive_currency,
-            "receive_currency": receive_currency,
-            "note": str(data.get("note") or "").strip()[:120],
-            "status": "ACTIVE",
-            "created_at": now.strftime("%Y-%m-%d %H:%M:%S"),
-            "created_by": "admin" if is_admin else "user",
-            "expires_at": (now + timedelta(hours=ttl_hours)).strftime("%Y-%m-%d %H:%M:%S"),
-            "cap_psc": cap_psc,
-            "collected_psc": 0.0,
-            "collected_kes": 0.0,
-            "payments": [],
-        }
-        _payment_link_upsert(token, row)
-
-        # Use auto-share tunnel URL if available; fall back to request host.
-        try:
-            base = auto_share.public_base(fallback=request.url_root).rstrip("/")
-        except Exception:
-            base = request.url_root.rstrip("/")
-        public_url = base + "/pay/" + token
-
-        return jsonify({
-            "success": True,
-            "token": token,
-            "url": public_url,
-            "link": row,
-            "psc_to_kes_rate": PSC_TO_KES_RATE,
-            "message": "Payment link created.",
-        })
-    except Exception as e:
-        return jsonify({"success": False, "message": str(e)}), 500
-
-
-@app.route("/api/payment_link/<token>", methods=["GET"])
-def api_payment_link_get(token):
-    try:
-        row = _payment_link_get(token)
-        usable, reason = _payment_link_is_usable(row)
-        if not row:
-            return jsonify({"success": False, "message": reason}), 404
-
-        wallet_addr = row.get("wallet_address", "")
-        client = _client_by_wallet(wallet_addr) or {}
-        wallet_short = wallet_addr[:8] + "..." + wallet_addr[-6:] if wallet_addr else ""
-
-        return jsonify({
-            "success": True,
-            "usable": usable,
-            "reason": reason,
-            "link": {
-                "token": token,
-                "amount_kes": row.get("amount_kes", 0),
-                "target": row.get("target", "spendable"),
-                "gateway": row.get("gateway", "flutterwave"),
-                "note": row.get("note", ""),
-                "status": row.get("status"),
-                "expires_at": row.get("expires_at"),
-                "created_at": row.get("created_at"),
-            },
-            "recipient": {
-                "name": client.get("name", "") or "PSC Merchant",
-                "wallet_short": wallet_short,
-            },
-            "limits": {
-                "min_kes": PAYMENT_LINK_MIN_KES,
-                "max_kes": PAYMENT_LINK_MAX_KES,
-            },
-            "psc_to_kes_rate": PSC_TO_KES_RATE,
-        })
-    except Exception as e:
-        return jsonify({"success": False, "message": str(e)}), 500
-
-
-
-# === ADDITIVE: payment-link verify helper ===
-def _flw_verify_by_reference(tx_ref):
-    if not FLW_SECRET_KEY:
-        return False, 'Flutterwave keys not configured'
-    try:
-        r = _http.get(
-            f"{FLW_BASE_URL}/transactions/verify_by_reference",
-            params={'tx_ref': tx_ref},
-            headers=_flw_headers(),
-            timeout=20,
-        )
-        resp = r.json() if r.content else {}
-        if r.status_code >= 300 or resp.get('status') != 'success':
-            return False, resp.get('message') or 'verify_by_reference failed'
-        return True, resp.get('data') or {}
-    except Exception as e:
-        return False, str(e)
-# === END ADDITIVE ===
-
-# === ADDITIVE: payment-link verify (client-side return handler) ===
-@app.route("/api/payment_link/verify", methods=["POST"])
-def api_payment_link_verify_client():
-    try:
-        data = request.get_json() or {}
-        tx_ref = str(data.get("tx_ref") or "").strip()
-        order_id = str(data.get("order_id") or "").strip()
-
-        # CoinGate branch
-        if order_id or tx_ref.startswith("PSC-LNK-CG-") or tx_ref.startswith("PSC-CG-"):
-            _cid = order_id or tx_ref
-            ok, msg, row = _cg_verify_and_credit(_cid)
-            return jsonify({"success": ok, "message": msg,
-                            "payment": row, "gateway": "coingate"}), (200 if ok else 400)
-
-        # Paystack branch
-        if tx_ref.startswith("PSC-LNK-PS-") or tx_ref.startswith("PSC-PS-"):
-            ok, msg, row = _ps_verify_and_credit(tx_ref, tx_ref)
-            return jsonify({"success": ok, "message": msg,
-                            "payment": row, "gateway": "paystack"}), (200 if ok else 400)
-
-        if not tx_ref:
-            return jsonify({"success": False, "message": "tx_ref required"}), 400
-        row = _payment_find(tx_ref)
-        if not row:
-            return jsonify({"success": False, "message": "Payment not found"}), 404
-        st = str(row.get("status") or "").upper()
-        if st == "COMPLETED":
-            return jsonify({"success": True, "message": "Already completed", "status": "COMPLETED", "payment": row})
-        if st == "AWAITING_APPROVAL":
-            return jsonify({"success": True, "message": "Awaiting admin approval", "status": "AWAITING_APPROVAL", "payment": row})
-        if st in ("FAILED", "REJECTED"):
-            return jsonify({"success": False, "message": "Payment failed/rejected", "status": st, "payment": row}), 400
-        ok, info = _flw_verify_by_reference(tx_ref)
-        if not ok:
-            _payment_update(tx_ref, status="FAILED", error=str(info)[:300])
-            return jsonify({"success": False, "message": str(info), "status": "FAILED"}), 400
-        got_status = str(info.get("status") or "").lower()
-        got_amount = float(info.get("amount") or 0)
-        got_currency = str(info.get("currency") or "").upper()
-        if got_status != "successful":
-            _payment_update(tx_ref, status="FAILED", error="provider status=" + got_status)
-            return jsonify({"success": False, "message": "Provider status: " + got_status, "status": "FAILED"}), 400
-        if got_currency != "KES":
-            _payment_update(tx_ref, status="FAILED", error="currency=" + got_currency)
-            return jsonify({"success": False, "message": "Currency mismatch", "status": "FAILED"}), 400
-        if got_amount + 0.01 < float(row.get("amount_kes") or 0):
-            _payment_update(tx_ref, status="FAILED", error="amount below expected")
-            return jsonify({"success": False, "message": "Amount less than expected", "status": "FAILED"}), 400
-        _payment_update(tx_ref, status="AWAITING_APPROVAL", flw_tx_id=info.get("id"), verified_at=_now(), error="Awaiting admin approval")
-        return jsonify({"success": True, "message": "Payment confirmed by Flutterwave. Awaiting admin approval.", "status": "AWAITING_APPROVAL", "payment": _payment_find(tx_ref)})
-    except Exception as e:
-        return jsonify({"success": False, "message": str(e)}), 500
-# === END ADDITIVE ===
-
-@app.route("/pay/<token>", methods=["GET"])
-def pay_link_page(token):
-    row = _payment_link_get(token)
-    usable, reason = _payment_link_is_usable(row)
-
-    wallet_addr = (row or {}).get("wallet_address", "")
-    client = _client_by_wallet(wallet_addr) or {}
-    recipient_name = client.get("name", "") or "PSC Merchant"
-    wallet_short = wallet_addr[:8] + "..." + wallet_addr[-6:] if wallet_addr else ""
-    fixed_amount = float((row or {}).get("amount_kes") or 0)
-    target = (row or {}).get("target", "spendable")
-    gateway = (row or {}).get("gateway", "flutterwave")
-    note = (row or {}).get("note", "")
-
-    html = render_template_string(
-        PAY_LINK_TEMPLATE,
-        token=token,
-        usable=usable,
-        reason=reason,
-        recipient_name=recipient_name,
-        wallet_short=wallet_short,
-        fixed_amount=fixed_amount,
-        target=target,
-        gateway=gateway,
-        note=note,
-        min_kes=PAYMENT_LINK_MIN_KES,
-        max_kes=PAYMENT_LINK_MAX_KES,
-        psc_rate=PSC_TO_KES_RATE,
-    )
-    return html
-
-
-@app.route("/api/payment_link/<token>/initiate", methods=["POST"])
-def api_payment_link_initiate(token):
-    try:
-        row = _payment_link_get(token)
-        usable, reason = _payment_link_is_usable(row)
-        if not usable:
-            return jsonify({"success": False, "message": reason}), 400
-
-        data = request.get_json() or {}
-
-        fixed_amount = float(row.get("amount_kes") or 0)
-        if fixed_amount > 0:
-            amount_kes = round(fixed_amount, 2)
-        else:
-            try:
-                amount_kes = round(float(data.get("amount_kes") or 0), 2)
-            except (TypeError, ValueError):
-                amount_kes = 0.0
-
-        if amount_kes < PAYMENT_LINK_MIN_KES:
-            return jsonify({"success": False,
-                            "message": "Minimum is KES %.2f." % PAYMENT_LINK_MIN_KES}), 400
-        if PAYMENT_LINK_MAX_KES > 0 and amount_kes > PAYMENT_LINK_MAX_KES + 1e-9:
-            return jsonify({"success": False,
-                            "message": "Maximum is KES %.2f." % PAYMENT_LINK_MAX_KES}), 400
-
-        wallet_addr = row["wallet_address"]
-        wallet = get_wallet(wallet_addr)
-        if not wallet:
-            return jsonify({"success": False, "message": "Recipient wallet not found."}), 404
-
-        cap_psc = float(row.get("cap_psc") or 0)
-        if cap_psc > 0:
-            remaining_psc = cap_psc - float(row.get("collected_psc") or 0)
-            if remaining_psc <= 0:
-                return jsonify({"success": False,
-                                "message": "This payment link has reached its cap."}), 400
-            if amount_kes / PSC_TO_KES_RATE > remaining_psc + 1e-9:
-                return jsonify({
-                    "success": False,
-                    "message": "Only %.2f PSC (KES %.2f) can still be collected on this link." % (
-                        remaining_psc, remaining_psc * PSC_TO_KES_RATE),
-                    "remaining_psc": round(remaining_psc, 2),
-                }), 400
-
-        target = _normalize_credit_target(row.get("target") or "spendable")
-        gateway = str(row.get("gateway") or "flutterwave").strip().lower()
-
-        payer_name = str(data.get("payer_name") or "").strip()[:80]
-        payer_email = str(data.get("payer_email") or "").strip()
-        payer_phone = str(data.get("payer_phone") or "").strip()
-
-        if not payer_email:
-            payer_email = "payer@example.com"
-
-        expected_psc = round(amount_kes / PSC_TO_KES_RATE, 2)
-
-        if gateway == "flutterwave":
-            if not FLW_SECRET_KEY:
-                return jsonify({"success": False,
-                                "message": "Flutterwave not configured."}), 500
-            tx_ref = "PSC-LNK-" + uuid.uuid4().hex[:16]
-            _payment_add({
-                "tx_ref": tx_ref,
-                "wallet_address": wallet_addr,
-                "amount_kes": amount_kes,
-                "expected_psc": expected_psc,
-                "status": "PENDING",
-                "provider": "flutterwave",
-                "flw_tx_id": None,
-                "created_at": _now(),
-                "verified_at": None,
-                "credited_psc": 0.0,
-                "target": target,
-                "via_link": token,
-                "payer_name": payer_name,
-                "payer_email": payer_email,
-                "payer_phone": payer_phone,
-            })
-
-            base = request.url_root.rstrip("/")
-            payload = {
-                "tx_ref": tx_ref,
-                "amount": str(amount_kes),
-                "currency": "KES",
-                "redirect_url": base + "/pay/" + token + "?tx_ref=" + tx_ref,
-                "payment_options": "card,mpesa,banktransfer,ussd",
-                "customer": {
-                    "email": payer_email,
-                    "phonenumber": payer_phone or "",
-                    "name": payer_name or "PSC Payer",
-                },
-                "customizations": {
-                    "title": "PSC Payment Link",
-                    "description": "Pay %.2f PSC (KES %.2f)" % (expected_psc, amount_kes),
-                },
-            }
-            r = _http.post(FLW_BASE_URL + "/payments", json=payload,
-                           headers=_flw_headers(), timeout=20)
-            resp = r.json() if r.content else {}
-            if r.status_code >= 300 or resp.get("status") != "success":
-                _payment_update(tx_ref, status="FAILED",
-                                error=str(resp.get("message") or r.text)[:300])
-                return jsonify({"success": False,
-                                "message": resp.get("message") or "Flutterwave error"}), 502
-
-            return jsonify({
-                "success": True,
-                "tx_ref": tx_ref,
-                "gateway": "flutterwave",
-                "checkout_url": resp["data"]["link"],
-                "amount_kes": amount_kes,
-                "expected_psc": expected_psc,
-                "target": target,
-            })
-
-        if gateway == "paystack":
-            if not PAYSTACK_ENABLED or not PAYSTACK_SECRET_KEY:
-                return jsonify({"success": False,
-                                "message": "Paystack not enabled/configured."}), 500
-            tx_ref = "PSC-LNK-PS-" + uuid.uuid4().hex[:16]
-            _ps_payment_add({
-                "tx_ref": tx_ref,
-                "wallet_address": wallet_addr,
-                "amount_kes": amount_kes,
-                "expected_psc": expected_psc,
-                "status": "PENDING",
-                "provider": "paystack",
-                "ps_reference": None,
-                "created_at": _now(),
-                "verified_at": None,
-                "credited_psc": 0.0,
-                "target": target,
-                "via_link": token,
-                "payer_name": payer_name,
-                "payer_email": payer_email,
-                "payer_phone": payer_phone,
-            })
-            base = request.url_root.rstrip("/")
-            payload = {
-                "email": payer_email,
-                "amount": int(round(amount_kes * 100)),
-                "currency": PAYSTACK_CURRENCY,
-                "reference": tx_ref,
-                "callback_url": base + "/pay/" + token + "?tx_ref=" + tx_ref,
-                "metadata": {
-                    "wallet": wallet_addr,
-                    "target": target,
-                    "via_link": token,
-                    "payer_name": payer_name,
-                    "payer_phone": payer_phone,
-                },
-            }
-            r = _http.post(PAYSTACK_BASE_URL + "/transaction/initialize",
-                           json=payload, headers=_ps_headers(), timeout=20)
-            resp = r.json() if r.content else {}
-            if r.status_code >= 300 or not resp.get("status"):
-                _ps_payment_update(tx_ref, status="FAILED",
-                                   error=str(resp.get("message") or r.text)[:300])
-                return jsonify({"success": False,
-                                "message": resp.get("message") or "Paystack error"}), 502
-            pdata = resp.get("data") or {}
-            return jsonify({
-                "success": True,
-                "tx_ref": tx_ref,
-                "gateway": "paystack",
-                "checkout_url": pdata.get("authorization_url"),
-                "access_code": pdata.get("access_code"),
-                "reference": pdata.get("reference") or tx_ref,
-                "amount_kes": amount_kes,
-                "expected_psc": expected_psc,
-                "target": target,
-            })
-
-        if gateway == "coingate":
-            if not COINGATE_ENABLED or not COINGATE_API_TOKEN:
-                return jsonify({"success": False,
-                                "message": "CoinGate not enabled/configured."}), 500
-            order_id = "PSC-LNK-CG-" + uuid.uuid4().hex[:16]
-            try:
-                settle_amount, _rate_used = _cg_kes_to_settle(amount_kes)
-            except Exception:
-                settle_amount, _rate_used = amount_kes, 1.0
-            receive_currency = str(row.get("receive_currency") or COINGATE_DEFAULT_RECEIVE).strip().upper()
-            if receive_currency not in COINGATE_ALLOWED_CURRENCIES:
-                receive_currency = str(row.get("receive_currency") or COINGATE_DEFAULT_RECEIVE).strip().upper()
-            if receive_currency not in COINGATE_ALLOWED_CURRENCIES:
-                receive_currency = COINGATE_DEFAULT_RECEIVE
-            _cg_payment_add({
-                "order_id": order_id,
-                "wallet_address": wallet_addr,
-                "amount_kes": amount_kes,
-                "settle_amount": settle_amount,
-                "settle_currency": COINGATE_SETTLE_CUR,
-                "receive_currency": receive_currency,
-                "expected_psc": expected_psc,
-                "status": "PENDING",
-                "provider": "coingate",
-                "cg_order_id": None,
-                "created_at": _now(),
-                "verified_at": None,
-                "credited_psc": 0.0,
-                "target": target,
-                "via_link": token,
-                "payer_name": payer_name,
-                "payer_email": payer_email,
-                "payer_phone": payer_phone,
-            })
-            base = request.url_root.rstrip("/")
-            success_url = base + "/pay/" + token + "?order_id=" + order_id
-            payload = {
-                "order_id": order_id,
-                "price_amount": settle_amount,
-                "price_currency": COINGATE_SETTLE_CUR,
-                "receive_currency": receive_currency,
-                "title": "PSC Payment Link",
-                "description": "Pay %.2f PSC (KES %.2f)" % (expected_psc, amount_kes),
-                "callback_url": base + "/webhooks/coingate",
-                "cancel_url": success_url,
-                "success_url": success_url,
-            }
-            r = _http.post(f"{COINGATE_BASE_URL}/orders", json=payload,
-                           headers=_cg_headers(), timeout=20)
-            resp = r.json() if r.content else {}
-            if r.status_code >= 300 or not resp.get("id"):
-                _cg_payment_update(order_id, status="FAILED",
-                                   error=str(resp.get("message") or r.text)[:300])
-                return jsonify({"success": False,
-                                "message": resp.get("message") or "CoinGate error"}), 502
-            _cg_payment_update(order_id, cg_order_id=resp.get("id"))
-            return jsonify({
-                "success": True,
-                "order_id": order_id,
-                "gateway": "coingate",
-                "checkout_url": resp.get("payment_url"),
-                "amount_kes": amount_kes,
-                "expected_psc": expected_psc,
-                "target": target,
-            })
-
-        return jsonify({"success": False, "message": "Unknown gateway."}), 400
-    except Exception as e:
-        return jsonify({"success": False, "message": str(e)}), 500
-
-
-def _payment_link_recompute(token):
-    row = _payment_link_get(token)
-    if not row:
-        return None
-    wallet_addr = row.get("wallet_address")
-    collected_psc = 0.0
-    collected_kes = 0.0
-    tx_refs = []
-
-    for p in _payments_all():
-        if p.get("via_link") != token:
-            continue
-        if p.get("wallet_address") != wallet_addr:
-            continue
-        if p.get("status") == "COMPLETED":
-            collected_psc += float(p.get("credited_psc") or 0)
-            collected_kes += float(p.get("amount_kes") or 0)
-            tx_refs.append(p.get("tx_ref"))
-
-    try:
-        for p in _ps_payments_all():
-            if p.get("via_link") != token:
-                continue
-            if p.get("wallet_address") != wallet_addr:
-                continue
-            if p.get("status") == "COMPLETED":
-                collected_psc += float(p.get("credited_psc") or 0)
-                collected_kes += float(p.get("amount_kes") or 0)
-                tx_refs.append(p.get("tx_ref"))
-    except Exception:
-        pass
-
-    try:
-        for p in _cg_payments_all():
-            if p.get("via_link") != token:
-                continue
-            if p.get("wallet_address") != wallet_addr:
-                continue
-            if p.get("status") == "COMPLETED":
-                collected_psc += float(p.get("credited_psc") or 0)
-                collected_kes += float(p.get("amount_kes") or 0)
-                tx_refs.append(p.get("order_id"))
-    except Exception:
-        pass
-
-    row["collected_psc"] = round(collected_psc, 2)
-    row["collected_kes"] = round(collected_kes, 2)
-    row["payments"] = tx_refs
-
-    cap_psc = float(row.get("cap_psc") or 0)
-    if cap_psc > 0 and collected_psc >= cap_psc - 1e-9:
-        row["status"] = "FULFILLED"
-
-    _payment_link_upsert(token, row)
-    return row
-
-
-@app.route("/api/payment_link/list/<wallet_addr>", methods=["GET"])
-def api_payment_link_list(wallet_addr):
-    try:
-        wallet_addr = str(wallet_addr or "").strip()
-        session_wallet = session.get("wallet", "")
-        sent_token = request.headers.get("X-PSC-Admin-Token", "")
-        is_admin = bool(PSC_ADMIN_TOKEN) and hmac.compare_digest(sent_token, PSC_ADMIN_TOKEN)
-
-        if not is_admin and session_wallet != wallet_addr:
-            return jsonify({"success": False, "message": "Not allowed."}), 403
-
-        all_links = _payment_links_all()
-        rows = []
-        for tok, row in all_links.items():
-            if row.get("wallet_address") != wallet_addr:
-                continue
-            fresh = _payment_link_recompute(tok) or row
-            usable, reason = _payment_link_is_usable(fresh)
-            r = dict(fresh)
-            r["usable"] = usable
-            r["reason"] = reason
-            try:
-                _base = auto_share.public_base(fallback=request.url_root).rstrip("/")
-            except Exception:
-                _base = request.url_root.rstrip("/")
-            r["url"] = _base + "/pay/" + tok
-            rows.append(r)
-
-        rows.sort(key=lambda x: x.get("created_at", ""), reverse=True)
-        return jsonify({"success": True, "links": rows})
-    except Exception as e:
-        return jsonify({"success": False, "message": str(e)}), 500
-
-
-@app.route("/api/payment_link/<token>/revoke", methods=["POST"])
-def api_payment_link_revoke(token):
-    try:
-        row = _payment_link_get(token)
-        if not row:
-            return jsonify({"success": False, "message": "Link not found."}), 404
-
-        session_wallet = session.get("wallet", "")
-        sent_token = request.headers.get("X-PSC-Admin-Token", "")
-        is_admin = bool(PSC_ADMIN_TOKEN) and hmac.compare_digest(sent_token, PSC_ADMIN_TOKEN)
-
-        if not is_admin and row.get("wallet_address") != session_wallet:
-            return jsonify({"success": False, "message": "Not allowed."}), 403
-
-        row["status"] = "REVOKED"
-        row["revoked_at"] = _now()
-        _payment_link_upsert(token, row)
-        return jsonify({"success": True, "link": row, "message": "Link revoked."})
-    except Exception as e:
-        return jsonify({"success": False, "message": str(e)}), 500
-
-
-PAY_LINK_TEMPLATE = r"""<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<title>Pay PSC Merchant</title>
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<style>
-  *{box-sizing:border-box}
-  body{margin:0;font-family:'Segoe UI',Tahoma,Verdana,sans-serif;background:#f5f6fa;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px}
-  .card{background:#fff;border-radius:16px;box-shadow:0 12px 40px rgba(0,0,0,.12);max-width:440px;width:100%;padding:28px}
-  h1{margin:0 0 6px;font-size:1.3rem;color:#1a1a2e}
-  .sub{color:#666;font-size:.9rem;margin-bottom:18px}
-  .rec{background:#f0f4ff;border-left:4px solid #667eea;padding:10px 14px;border-radius:8px;margin-bottom:18px;font-size:.9rem}
-  .rec b{color:#1a1a2e}
-  label{display:block;font-size:.85rem;font-weight:600;color:#334155;margin:12px 0 4px}
-  input{width:100%;padding:12px 14px;border:2px solid #e5e7eb;border-radius:10px;font-size:1rem}
-  input:focus{outline:none;border-color:#667eea}
-  .btn{width:100%;padding:14px;background:linear-gradient(135deg,#667eea,#764ba2);color:#fff;border:none;border-radius:10px;font-size:1rem;font-weight:700;cursor:pointer;margin-top:18px}
-  .btn:hover{opacity:.93}
-  .btn:disabled{background:#999;cursor:not-allowed}
-  .msg{margin-top:14px;padding:10px 14px;border-radius:8px;font-size:.9rem;display:none}
-  .err{background:#fef2f2;color:#b91c1c;border:1px solid #fecaca;display:block}
-  .ok{background:#ecfdf5;color:#065f46;border:1px solid #a7f3d0;display:block}
-  .amount-note{font-size:.8rem;color:#64748b;margin-top:4px}
-  .lock{background:#fef3c7;color:#92400e;padding:12px 14px;border-radius:8px;font-size:.9rem}
-  .powered{margin-top:18px;text-align:center;font-size:.78rem;color:#94a3b8}
-  .powered b{color:#667eea}
-</style>
-</head>
-<body>
-  <div class="card">
-    {% if not usable %}
-      <h1>Payment link unavailable</h1>
-      <div class="lock">{{ reason }}</div>
-    {% else %}
-      <h1>Pay {{ recipient_name }}</h1>
-      <div class="sub">Secure PSC deposit &middot; 1 PSC = KES {{ psc_rate }}</div>
-      <div class="rec">
-        <div>Paying to: <b>{{ recipient_name }}</b></div>
-        <div>Wallet: <b>{{ wallet_short }}</b></div>
-        {% if note %}<div style="margin-top:6px;color:#475569;">Note: {{ note }}</div>{% endif %}
-      </div>
-
-      {% if fixed_amount and fixed_amount > 0 %}
-        <div class="rec" style="background:#ecfdf5;border-left-color:#10b981;">
-          Amount due: <b>KES {{ "%.2f"|format(fixed_amount) }}</b>
-          ({{ "%.2f"|format(fixed_amount / psc_rate) }} PSC)
-        </div>
-        <input type="hidden" id="amount" value="{{ '%.2f'|format(fixed_amount) }}">
-      {% else %}
-        <label for="amount">Amount (KES)</label>
-        <input type="number" id="amount" min="{{ min_kes }}"
-               {% if max_kes > 0 %}max="{{ max_kes }}"{% endif %}
-               placeholder="e.g. 500" required>
-        <div class="amount-note">Minimum KES {{ "%.2f"|format(min_kes) }}{% if max_kes > 0 %} &middot; maximum KES {{ "%.2f"|format(max_kes) }}{% endif %}</div>
-      {% endif %}
-
-      <label for="name">Your name (optional)</label>
-      <input type="text" id="name" placeholder="Jane Doe">
-
-      <label for="email">Email (for receipt)</label>
-      <input type="email" id="email" placeholder="you@example.com" required>
-
-      <label for="phone">Phone (optional)</label>
-      <input type="text" id="phone" placeholder="07XXXXXXXX">
-
-      <button class="btn" id="payBtn">Pay with {{ gateway|capitalize }}</button>
-      <div class="msg" id="msg"></div>
-    {% endif %}
-    <div class="powered">Secured by <b>PSC - Pulse Shopping Coin</b></div>
-  </div>
-
-<script>
-(function(){
-  var TOKEN = {{ token|tojson }};
-  var GATEWAY = {{ gateway|tojson }};
-
-  // === ADDITIVE: auto-verify on return from Paystack / CoinGate / Flutterwave ===
-  try {
-    var _qs = new URLSearchParams(window.location.search);
-    var _txr = _qs.get('tx_ref') || _qs.get('trxref') || _qs.get('reference') || '';
-    var _orderId = _qs.get('order_id') || _qs.get('cg_order_id') || '';
-    if (_txr || _orderId) {
-      var _box = document.getElementById('msg');
-      if (_box) { _box.className = 'msg ok'; _box.textContent = 'Verifying your payment...'; }
-      var _body = { token: TOKEN };
-      if (_txr) _body.tx_ref = _txr;
-      if (_orderId) _body.order_id = _orderId;
-      fetch('/api/payment_link/verify', {
-        method: 'POST', headers: {'Content-Type':'application/json'},
-        body: JSON.stringify(_body)
-      })
-      .then(function(r){ return r.json(); })
-      .then(function(d){
-        var el = document.getElementById('msg'); if (!el) return;
-        if (d && d.success) { el.className = 'msg ok';
-          el.textContent = d.message || 'Payment confirmed. Awaiting admin approval.'; }
-        else { el.className = 'msg err';
-          el.textContent = (d && d.message) || 'Could not verify payment.'; }
-      })
-      .catch(function(e){ var el = document.getElementById('msg');
-        if (el) { el.className = 'msg err'; el.textContent = 'Verify error: ' + e; } });
-    }
-  } catch (e) { /* ignore */ }
-  // === END ADDITIVE ===
-
-  var btn = document.getElementById('payBtn');
-  if (!btn) return;
-
-  function show(msg, isErr){
-    var el = document.getElementById('msg');
-    el.textContent = msg;
-    el.className = 'msg ' + (isErr ? 'err' : 'ok');
-  }
-
-  btn.addEventListener('click', function(){
-    var amountEl = document.getElementById('amount');
-    var amount = amountEl ? parseFloat(amountEl.value || '0') : 0;
-    var email = (document.getElementById('email').value || '').trim();
-    var name  = (document.getElementById('name').value || '').trim();
-    var phone = (document.getElementById('phone').value || '').trim();
-
-    if (!amount || amount <= 0) { show('Enter a valid amount.', true); return; }
-    if (!email) { show('Email is required for your receipt.', true); return; }
-
-    btn.disabled = true;
-    show('Creating secure checkout...', false);
-
-    fetch('/api/payment_link/' + encodeURIComponent(TOKEN) + '/initiate', {
-      method: 'POST',
-      headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({
-        amount_kes: amount,
-        payer_name: name,
-        payer_email: email,
-        payer_phone: phone
-      })
-    })
-    .then(function(r){ return r.json(); })
-    .then(function(d){
-      if (!d || !d.success) {
-        show((d && d.message) || 'Could not start payment.', true);
-        btn.disabled = false;
-        return;
-      }
-      show('Redirecting to secure checkout...', false);
-      window.location.href = d.checkout_url;
-    })
-    .catch(function(e){
-      show('Network error: ' + e, true);
-      btn.disabled = false;
-    });
-  });
-})();
-</script>
-</body>
-</html>
-"""
-# ============================================================
-# END PAYMENT LINKS
-# ============================================================
-
-
-# ============================================================
-# COINGATE GATEWAY - ADDITIVE, OFF BY DEFAULT
-# Supports BTC, ETH, USDT-TRC20.
-# ============================================================
-
-def _cg_clean_token(raw):
-    """Strip whitespace and one layer of surrounding quotes so a
-    quoted COINGATE_API_TOKEN in .env does not cause BadAuthToken."""
-    t = str(raw or "").strip()
-    if len(t) >= 2 and t[0] == t[-1] and t[0] in ('"', "'"):
-        t = t[1:-1].strip()
-    return t
-
-COINGATE_ENABLED     = os.getenv("COINGATE_ENABLED", "0").strip() == "1"
-COINGATE_API_TOKEN   = _cg_clean_token(os.getenv("COINGATE_API_TOKEN", ""))
-COINGATE_MODE        = os.getenv("COINGATE_MODE", "sandbox").strip().lower()
-COINGATE_BASE_URL    = ("https://api-sandbox.coingate.com/v2"
-                        if COINGATE_MODE == "sandbox"
-                        else "https://api.coingate.com/v2")
-COINGATE_ALLOWED_CURRENCIES = [
-    c.strip().upper()
-    for c in os.getenv("COINGATE_ALLOWED_CURRENCIES", "BTC,ETH,USDT").split(",")
-    if c.strip()
-]
-COINGATE_DEFAULT_RECEIVE = os.getenv("COINGATE_RECEIVE_CUR", "USDT").strip().upper()
-COINGATE_SETTLE_CUR      = os.getenv("COINGATE_SETTLE_CUR",  "EUR").strip().upper()
-COINGATE_KES_PER_USD     = float(os.getenv("COINGATE_KES_PER_USD", "0") or 0)
-COINGATE_MIN_KES         = float(os.getenv("COINGATE_MIN_KES", "100") or 100)
-COINGATE_MAX_KES         = float(os.getenv("COINGATE_MAX_KES", "0") or 0)
-
-_CG_ALLOWED_SETTLE = {"USD", "EUR", "GBP", "USDT", "USDC", "BTC", "ETH"}
-if COINGATE_SETTLE_CUR not in _CG_ALLOWED_SETTLE:
-    print("[COINGATE] settle currency " + repr(COINGATE_SETTLE_CUR) + " not supported by CoinGate; using USD.")
-    COINGATE_SETTLE_CUR = "USD"
-
-COINGATE_PAYMENTS_FILE = os.path.join(
-    os.path.dirname(PAYMENTS_FILE) or ".",
-    "coingate_payments.json"
-)
-
-
-def _cg_headers():
-    return {
-        "Authorization": f"Token {COINGATE_API_TOKEN}",
-        "Content-Type":  "application/json",
-        "Accept":        "application/json",
-    }
-
-
-def _cg_payments_all():
-    d = _jload(COINGATE_PAYMENTS_FILE, [])
-    return d if isinstance(d, list) else []
-
-
-def _cg_payment_find(order_id):
-    for row in _cg_payments_all():
-        if row.get("order_id") == order_id:
-            return row
-    return None
-
-
-def _cg_payment_add(row):
-    rows = _cg_payments_all()
-    rows.append(row)
-    _jsave(COINGATE_PAYMENTS_FILE, rows)
-
-
-def _cg_payment_update(order_id, **fields):
-    rows = _cg_payments_all()
-    for r in rows:
-        if r.get("order_id") == order_id:
-            r.update(fields)
-            _jsave(COINGATE_PAYMENTS_FILE, rows)
-            return r
-    return None
-
-
-def _cg_normalize_receive_currency(raw):
-    if not raw:
-        raw = COINGATE_DEFAULT_RECEIVE
-    s = str(raw).strip().upper().replace("-", "").replace("_", "").replace(" ", "")
-    if s in ("USDTTRC20", "TRC20USDT", "USDTTRON", "TRONUSDT", "USDT"):
-        if "USDT" in COINGATE_ALLOWED_CURRENCIES:
-            return "USDT", "TRC20"
-        return None, "USDT is not in COINGATE_ALLOWED_CURRENCIES"
-    if s in COINGATE_ALLOWED_CURRENCIES:
-        return s, ""
-    return None, f"Currency '{raw}' not in allowlist {COINGATE_ALLOWED_CURRENCIES}"
-
-
-def _cg_kes_to_settle(amount_kes):
-    """Convert KES to COINGATE_SETTLE_CUR. CoinGate does not accept
-    KES as a price_currency, so when COINGATE_KES_PER_USD is unset
-    we fall back to a safe default instead of sending KES."""
-    rate = COINGATE_KES_PER_USD if COINGATE_KES_PER_USD > 0 else 129.0
-    return round(amount_kes / rate, 2), rate
-
-
-@app.route("/api/psc/topup/initiate_cg", methods=["POST"])
-def api_psc_topup_initiate_cg():
-    if not COINGATE_ENABLED:
-        return jsonify({"success": False,
-                        "message": "CoinGate is disabled (COINGATE_ENABLED=0)."}), 503
-    if not COINGATE_API_TOKEN:
-        return jsonify({"success": False,
-                        "message": "CoinGate token not configured in .env"}), 500
-    try:
-        data = request.get_json() or {}
-        user = session.get("user")
-        session_wallet = session.get("wallet", "")
-        if not user or not session_wallet:
-            return jsonify({"success": False,
-                            "message": "Please log in to buy PSC."}), 401
-
-        address = str(data.get("wallet") or session_wallet or "").strip()
-        if address != session_wallet:
-            return jsonify({"success": False,
-                            "message": "Wallet does not match the logged-in account."}), 403
-
-        verified_phone = session.get("verified_phone", "")
-        if not verified_phone:
-            return jsonify({"success": False,
-                            "message": "Verify your phone before buying PSC."}), 403
-
-        client = get_client_by_phone(verified_phone)
-        if not client or str(client.get("wallet_address", "")).strip() != address:
-            return jsonify({"success": False,
-                            "message": "Your verified phone does not belong to this wallet."}), 403
-
-        amount_kes = float(data.get("amount_kes") or 0)
-        if amount_kes < COINGATE_MIN_KES:
-            return jsonify({"success": False,
-                            "message": f"Minimum CoinGate top-up is KES {COINGATE_MIN_KES:.2f}."}), 400
-        if COINGATE_MAX_KES > 0 and amount_kes > COINGATE_MAX_KES + 1e-9:
-            return jsonify({"success": False,
-                            "message": f"Maximum CoinGate top-up is KES {COINGATE_MAX_KES:.2f}."}), 400
-
-        wallet = get_wallet(address)
-        if not wallet:
-            return jsonify({"success": False, "message": "Wallet not found"}), 404
-
-        target = _normalize_credit_target(
-            data.get("target") or data.get("credit_target") or "spendable"
-        )
-
-        receive_currency, net_hint = _cg_normalize_receive_currency(
-            data.get("receive_currency") or data.get("token")
-        )
-        if not receive_currency:
-            return jsonify({"success": False,
-                            "message": net_hint,
-                            "allowed_currencies": COINGATE_ALLOWED_CURRENCIES}), 400
-
-        settle_amount, rate_used = _cg_kes_to_settle(amount_kes)
-        expected_psc = round(amount_kes / PSC_TO_KES_RATE, 2)
-        order_id = "PSC-CG-" + uuid.uuid4().hex[:16]
-
-        _cg_payment_add({
-            "order_id": order_id,
-            "wallet_address": address,
-            "amount_kes": round(amount_kes, 2),
-            "settle_amount": settle_amount,
-            "settle_currency": COINGATE_SETTLE_CUR,
-            "receive_currency": receive_currency,
-            "network_hint": net_hint,
-            "rate_used": rate_used,
-            "expected_psc": expected_psc,
-            "status": "PENDING",
-            "provider": "coingate",
-            "cg_order_id": None,
-            "created_at": _now(),
-            "verified_at": None,
-            "credited_psc": 0.0,
-            "target": target,
-        })
-
-        redirect_url = (str(data.get("redirect_url") or "").strip()
-                        or request.url_root.rstrip("/") + "/psc_topup_return")
-
-        # ADDITIVE: append order_id so the return page can verify CoinGate
-        try:
-            _sep = "&" if "?" in redirect_url else "?"
-            redirect_url = redirect_url + _sep + "order_id=" + order_id
-        except Exception:
-            pass
-
-        payload = {
-            "order_id":          order_id,
-            "price_amount":      settle_amount,
-            "price_currency":    COINGATE_SETTLE_CUR,
-            "receive_currency":  receive_currency,
-            "title":             "PSC Top-Up",
-            "description":       f"Buy {expected_psc} PSC for KES {amount_kes:.2f}",
-            "callback_url":      request.url_root.rstrip("/") + "/webhooks/coingate",
-            "cancel_url":        redirect_url,
-            "success_url":       redirect_url,
-        }
-
-        r = _http.post(f"{COINGATE_BASE_URL}/orders",
-                       json=payload, headers=_cg_headers(), timeout=20)
-        resp = r.json() if r.content else {}
-
-        print(f"[COINGATE] status={r.status_code} resp={str(resp)[:400]}")
-
-        if r.status_code == 401:
-            _hint = ("CoinGate rejected the API token. Check .env: "
-                     "1) no quotes around COINGATE_API_TOKEN; "
-                     "2) COINGATE_MODE matches the token's environment; "
-                     "3) token is still active on the CoinGate dashboard.")
-            _cg_payment_update(order_id, status="FAILED", error=_hint)
-            return jsonify({"success": False, "message": _hint}), 502
-
-        if r.status_code >= 300 or not resp.get("id"):
-            _cg_payment_update(order_id, status="FAILED", error=str(resp)[:300])
-            return jsonify({"success": False,
-                            "message": str(resp.get("message") or "CoinGate error")}), 502
-
-        _cg_payment_update(order_id, cg_order_id=resp.get("id"))
-
-        return jsonify({
-            "success": True,
-            "order_id": order_id,
-            "checkout_url": resp.get("payment_url"),
-            "amount_kes": round(amount_kes, 2),
-            "settle_amount": settle_amount,
-            "settle_currency": COINGATE_SETTLE_CUR,
-            "receive_currency": receive_currency,
-            "network_hint": net_hint,
-            "expected_psc": expected_psc,
-            "gateway": "coingate",
-            "target": target,
-            "allowed_currencies": COINGATE_ALLOWED_CURRENCIES,
-            "message": "Open the checkout link to pay with crypto.",
-        })
-    except Exception as e:
-        return jsonify({"success": False, "message": str(e)}), 500
-
-
-def _cg_verify_and_credit(order_id, cg_order_id=None):
-    row = _cg_payment_find(order_id)
-    if not row:
-        return False, "Unknown order_id", None
-    if row.get("status") == "COMPLETED":
-        return True, "Already credited", row
-    if row.get("status") == "FAILED":
-        return False, "Order previously FAILED", row
-    if not COINGATE_API_TOKEN:
-        return False, "CoinGate token not configured", row
-
-    cg_id = cg_order_id or row.get("cg_order_id")
-    if not cg_id:
-        return False, "CoinGate order id missing", row
-
-    try:
-        r = _http.get(f"{COINGATE_BASE_URL}/orders/{cg_id}",
-                      headers=_cg_headers(), timeout=20)
-        resp = r.json() if r.content else {}
-        if r.status_code == 401:
-            _hint = ("CoinGate rejected the API token. Check .env: "
-                     "1) no quotes around COINGATE_API_TOKEN; "
-                     "2) COINGATE_MODE matches the token's environment; "
-                     "3) token is still active on the CoinGate dashboard.")
-            _cg_payment_update(order_id, status="FAILED", error=_hint)
-            return jsonify({"success": False, "message": _hint}), 502
-
-        if r.status_code >= 300 or not resp.get("id"):
-            return False, resp.get("message") or "Verify failed", row
-
-        status = str(resp.get("status") or "").lower()
-        if status not in ("paid", "confirmed", "complete"):
-            _cg_payment_update(order_id, status="PENDING", cg_status=status)
-            return False, f"CoinGate status: {status}", row
-
-        psc_amount = float(row["expected_psc"])
-        kes_amount = float(row["amount_kes"])
-        target = _normalize_credit_target(row.get("target") or "spendable")
-
-        ok, msg, _wallet = _add_psc_to_target(
-            row["wallet_address"], psc_amount,
-            target=target, kes_amount=kes_amount,
-            payment_reference=f"CG:{order_id}",
-            audit_type="COINGATE_TOPUP",
-        )
-        if not ok:
-            _cg_payment_update(order_id, status="FAILED",
-                               error=f"credit failed: {msg}")
-            return False, f"Credit failed: {msg}", row
-
-        _cg_payment_update(order_id, status="COMPLETED",
-                           cg_status=status,
-                           verified_at=_now(),
-                           credited_psc=psc_amount, error="")
-        _close_partial_if_any(row["wallet_address"])
-
-        try:
-            if kes_amount >= CBK_REPORT_THRESHOLD_KES:
-                _compliance_flag_add({
-                    "at": _now(), "wallet": row["wallet_address"],
-                    "type": "LARGE_CRYPTO_INFLOW",
-                    "amount_kes": kes_amount, "order_id": order_id,
-                })
-        except Exception as _cg_cbk_e:
-            print(f"[COINGATE] CBK flag skipped: {_cg_cbk_e}")
-
-        return True, f"Credited {psc_amount:.2f} PSC", _cg_payment_find(order_id)
-    except Exception as e:
-        return False, str(e), row
-
-
-@app.route("/api/psc/topup/verify_cg", methods=["POST"])
-def api_psc_topup_verify_cg():
-    try:
-        data = request.get_json() or {}
-        order_id = str(data.get("order_id") or data.get("tx_ref") or "").strip()
-        if not order_id:
-            return jsonify({"success": False, "message": "order_id required"}), 400
-        ok, msg, row = _cg_verify_and_credit(
-            order_id, cg_order_id=data.get("cg_order_id")
-        )
-        return jsonify({"success": ok, "message": msg,
-                        "payment": row, "gateway": "coingate"}), (200 if ok else 400)
-    except Exception as e:
-        return jsonify({"success": False, "message": str(e)}), 500
-
-
-@app.route("/api/psc/topup/status_cg/<order_id>")
-def api_psc_topup_status_cg(order_id):
-    row = _cg_payment_find(order_id)
-    if not row:
-        return jsonify({"success": False, "message": "not found"}), 404
-    return jsonify({"success": True, "payment": row, "gateway": "coingate"})
-
-
-@app.route("/api/psc/topup/history_cg/<address>")
-def api_psc_topup_history_cg(address):
-    rows = [r for r in _cg_payments_all() if r.get("wallet_address") == address]
-    return jsonify({"success": True, "payments": rows, "gateway": "coingate"})
-
-
-@app.route("/api/psc/topup/currencies_cg", methods=["GET"])
-def api_psc_topup_currencies_cg():
-    currencies = []
-    for c in COINGATE_ALLOWED_CURRENCIES:
-        if c == "USDT":
-            currencies.append({
-                "key": "USDT", "label": "USDT (TRC20)",
-                "network": "TRC20",
-                "aliases": ["USDT-TRC20", "USDT_TRC20", "USDTTRC20", "TRC20-USDT"],
-            })
-        elif c == "BTC":
-            currencies.append({"key": "BTC", "label": "Bitcoin", "network": "Bitcoin"})
-        elif c == "ETH":
-            currencies.append({"key": "ETH", "label": "Ethereum", "network": "ERC20"})
-        else:
-            currencies.append({"key": c, "label": c, "network": ""})
-    return jsonify({
-        "success": True,
-        "enabled": COINGATE_ENABLED and bool(COINGATE_API_TOKEN),
-        "default": COINGATE_DEFAULT_RECEIVE,
-        "settle_currency": COINGATE_SETTLE_CUR,
-        "min_kes": COINGATE_MIN_KES,
-        "max_kes": COINGATE_MAX_KES,
-        "currencies": currencies,
-    })
-
-
-@app.route("/webhooks/coingate", methods=["POST"])
-def webhook_coingate():
-    try:
-        raw = request.get_data() or b""
-        body = json.loads(raw.decode("utf-8") or "{}")
-        cg_id = str(body.get("id") or "").strip()
-        order_id = str(body.get("order_id") or "").strip()
-        if not order_id and cg_id:
-            for r in _cg_payments_all():
-                if str(r.get("cg_order_id")) == cg_id:
-                    order_id = r.get("order_id")
-                    break
-        if not order_id:
-            return jsonify({"success": True, "message": "ignored"}), 200
-        _cg_verify_and_credit(order_id, cg_order_id=cg_id or None)
-        return jsonify({"success": True}), 200
-    except Exception as e:
-        return jsonify({"success": False, "message": str(e)}), 500
-
-
-# ============================================================
-# END COINGATE GATEWAY
-# ============================================================
-
-
-# ============================================================
-# MOONPAY GATEWAY - ADDITIVE, OFF BY DEFAULT
-# Crypto on-ramp via card. BTC, ETH, USDT-TRC20, USDC.
-# ============================================================
-
-MOONPAY_ENABLED          = os.getenv("MOONPAY_ENABLED", "0").strip() == "1"
-MOONPAY_PUBLISHABLE_KEY  = os.getenv("MOONPAY_PUBLISHABLE_KEY", "")
-MOONPAY_SECRET_KEY       = os.getenv("MOONPAY_SECRET_KEY", "")
-MOONPAY_MODE             = os.getenv("MOONPAY_MODE", "sandbox").strip().lower()
-MOONPAY_CURRENCY_CODE    = os.getenv("MOONPAY_CURRENCY_CODE", "kes").strip().lower()
-MOONPAY_BASE_CURRENCY    = os.getenv("MOONPAY_BASE_CURRENCY", "usdt").strip().lower()
-MOONPAY_ALLOWED_CRYPTOS  = [
-    c.strip().lower()
-    for c in os.getenv("MOONPAY_ALLOWED_CRYPTOS", "btc,eth,usdt,usdc").split(",")
-    if c.strip()
-]
-MOONPAY_MIN_KES          = float(os.getenv("MOONPAY_MIN_KES", "500") or 500)
-MOONPAY_MAX_KES          = float(os.getenv("MOONPAY_MAX_KES", "0") or 0)
-MOONPAY_REDIRECT_URL     = os.getenv("MOONPAY_REDIRECT_URL", "").strip()
-MOONPAY_WEBHOOK_SECRET   = os.getenv("MOONPAY_WEBHOOK_SECRET", "")
-
-MOONPAY_PAYMENTS_FILE = os.path.join(
-    os.path.dirname(PAYMENTS_FILE) or ".",
-    "moonpay_payments.json"
-)
-
-
-def _mp_payments_all():
-    d = _jload(MOONPAY_PAYMENTS_FILE, [])
-    return d if isinstance(d, list) else []
-
-
-def _mp_payment_find(tx_ref):
-    for row in _mp_payments_all():
-        if row.get("tx_ref") == tx_ref:
-            return row
-    return None
-
-
-def _mp_payment_add(row):
-    rows = _mp_payments_all()
-    rows.append(row)
-    _jsave(MOONPAY_PAYMENTS_FILE, rows)
-
-
-def _mp_payment_update(tx_ref, **fields):
-    rows = _mp_payments_all()
-    for r in rows:
-        if r.get("tx_ref") == tx_ref:
-            r.update(fields)
-            _jsave(MOONPAY_PAYMENTS_FILE, rows)
-            return r
-    return None
-
-
-def _mp_normalize_crypto(raw):
-    if not raw:
-        raw = MOONPAY_BASE_CURRENCY
-    s = str(raw).strip().lower().replace("-", "").replace("_", "").replace(" ", "")
-    if s in ("usdttrc20", "trc20usdt", "usdttron", "tronusdt", "usdt"):
-        return ("usdt", "TRC20") if "usdt" in MOONPAY_ALLOWED_CRYPTOS else (None, "USDT not in allowlist")
-    if s in MOONPAY_ALLOWED_CRYPTOS:
-        return s, ""
-    return None, f"Currency {raw} not in allowlist {MOONPAY_ALLOWED_CRYPTOS}"
-
-
-def _mp_build_signature(url):
-    if not MOONPAY_SECRET_KEY:
-        return url
-    try:
-        from urllib.parse import urlparse, urlunparse
-        import base64
-
-        parsed = urlparse(url)
-        query_with_q = "?" + parsed.query if parsed.query else ""
-        if not query_with_q:
-            return url
-
-        sig = hmac.new(
-            MOONPAY_SECRET_KEY.encode("utf-8"),
-            query_with_q.encode("utf-8"),
-            hashlib.sha256,
-        ).digest()
-        sig_b64 = base64.b64encode(sig).decode("utf-8")
-
-        new_query = parsed.query + "&signature=" + sig_b64
-        new_parsed = parsed._replace(query=new_query)
-        return urlunparse(new_parsed)
-    except Exception as e:
-        print(f"[MOONPAY] signature build failed: {e}")
-        return url
-
-
-@app.route("/api/psc/topup/initiate_mp", methods=["POST"])
-def api_psc_topup_initiate_mp():
-    if not MOONPAY_ENABLED:
-        return jsonify({"success": False,
-                        "message": "MoonPay is disabled (MOONPAY_ENABLED=0)."}), 503
-    if not MOONPAY_PUBLISHABLE_KEY:
-        return jsonify({"success": False,
-                        "message": "MoonPay publishable key not configured in .env"}), 500
-    try:
-        data = request.get_json() or {}
-        user = session.get("user")
-        session_wallet = session.get("wallet", "")
-        if not user or not session_wallet:
-            return jsonify({"success": False,
-                            "message": "Please log in to buy PSC."}), 401
-
-        address = str(data.get("wallet") or session_wallet or "").strip()
-        if address != session_wallet:
-            return jsonify({"success": False,
-                            "message": "Wallet does not match the logged-in account."}), 403
-
-        verified_phone = session.get("verified_phone", "")
-        if not verified_phone:
-            return jsonify({"success": False,
-                            "message": "Verify your phone before buying PSC."}), 403
-
-        client = get_client_by_phone(verified_phone)
-        if not client or str(client.get("wallet_address", "")).strip() != address:
-            return jsonify({"success": False,
-                            "message": "Your verified phone does not belong to this wallet."}), 403
-
-        amount_kes = float(data.get("amount_kes") or 0)
-        if amount_kes < MOONPAY_MIN_KES:
-            return jsonify({"success": False,
-                            "message": f"Minimum MoonPay top-up is KES {MOONPAY_MIN_KES:.2f}."}), 400
-        if MOONPAY_MAX_KES > 0 and amount_kes > MOONPAY_MAX_KES + 1e-9:
-            return jsonify({"success": False,
-                            "message": f"Maximum MoonPay top-up is KES {MOONPAY_MAX_KES:.2f}."}), 400
-
-        wallet = get_wallet(address)
-        if not wallet:
-            return jsonify({"success": False, "message": "Wallet not found"}), 404
-
-        target = _normalize_credit_target(
-            data.get("target") or data.get("credit_target") or "spendable"
-        )
-
-        crypto_currency, net_hint = _mp_normalize_crypto(
-            data.get("crypto_currency") or data.get("cryptocurrency")
-        )
-        if not crypto_currency:
-            return jsonify({"success": False,
-                            "message": net_hint,
-                            "allowed_cryptos": MOONPAY_ALLOWED_CRYPTOS}), 400
-
-        expected_psc = round(amount_kes / PSC_TO_KES_RATE, 2)
-        tx_ref = "PSC-MP-" + uuid.uuid4().hex[:16]
-
-        _mp_payment_add({
-            "tx_ref": tx_ref,
-            "wallet_address": address,
-            "amount_kes": round(amount_kes, 2),
-            "crypto_currency": crypto_currency,
-            "network_hint": net_hint,
-            "expected_psc": expected_psc,
-            "status": "PENDING",
-            "provider": "moonpay",
-            "target": target,
-            "created_at": _now(),
-            "verified_at": None,
-            "credited_psc": 0.0,
-            "mode": MOONPAY_MODE,
-        })
-
-        email = client.get("email") or "customer@example.com"
-        redirect_url = (MOONPAY_REDIRECT_URL
-                        or (request.url_root.rstrip("/") + "/psc_topup_return?tx_ref=" + tx_ref))
-
-        buy_url = (
-            "https://buy.moonpay.com"
-            "?apiKey=" + MOONPAY_PUBLISHABLE_KEY +
-            "&currencyCode=" + crypto_currency +
-            "&baseCurrencyCode=" + MOONPAY_CURRENCY_CODE +
-            "&baseCurrencyAmount=" + str(round(amount_kes, 2)) +
-            "&email=" + email +
-            "&externalTransactionId=" + tx_ref +
-            "&redirectURL=" + redirect_url +
-            "&walletAddress=" + address +
-            "&lockAmount=true"
-        )
-
-        signed_url = _mp_build_signature(buy_url)
-
-        print(f"[MOONPAY] initiate tx_ref={tx_ref} crypto={crypto_currency} amount_kes={amount_kes}")
-
-        return jsonify({
-            "success": True,
-            "tx_ref": tx_ref,
-            "checkout_url": signed_url,
-            "amount_kes": round(amount_kes, 2),
-            "crypto_currency": crypto_currency,
-            "network_hint": net_hint,
-            "expected_psc": expected_psc,
-            "target": target,
-            "gateway": "moonpay",
-            "allowed_cryptos": MOONPAY_ALLOWED_CRYPTOS,
-            "mode": MOONPAY_MODE,
-            "message": "Open the MoonPay checkout to complete payment by card.",
-        })
-    except Exception as e:
-        return jsonify({"success": False, "message": str(e)}), 500
-
-
-def _mp_verify_and_credit(tx_ref, external_tx_id=None, crypto_amount=None):
-    row = _mp_payment_find(tx_ref)
-    if not row:
-        return False, "Unknown tx_ref", None
-    if row.get("status") == "COMPLETED":
-        return True, "Already credited", row
-    if row.get("status") == "FAILED":
-        return False, "Payment previously FAILED", row
-
-    try:
-        psc_amount = float(row["expected_psc"])
-        kes_amount = float(row["amount_kes"])
-        target = _normalize_credit_target(row.get("target") or "spendable")
-
-        ok, msg, _wallet = _add_psc_to_target(
-            row["wallet_address"], psc_amount,
-            target=target, kes_amount=kes_amount,
-            payment_reference="MP:" + tx_ref,
-            audit_type="MOONPAY_TOPUP",
-        )
-        if not ok:
-            _mp_payment_update(tx_ref, status="FAILED",
-                               error="credit failed: " + msg)
-            return False, "Credit failed: " + msg, row
-
-        _mp_payment_update(tx_ref, status="COMPLETED",
-                           external_tx_id=external_tx_id,
-                           crypto_amount=crypto_amount,
-                           verified_at=_now(),
-                           credited_psc=psc_amount, error="")
-        _close_partial_if_any(row["wallet_address"])
-
-        try:
-            if kes_amount >= CBK_REPORT_THRESHOLD_KES:
-                _compliance_flag_add({
-                    "at": _now(), "wallet": row["wallet_address"],
-                    "type": "LARGE_MOONPAY_INFLOW",
-                    "amount_kes": kes_amount, "tx_ref": tx_ref,
-                })
-        except Exception as _mp_cbk_e:
-            print(f"[MOONPAY] CBK flag skipped: {_mp_cbk_e}")
-
-        return True, f"Credited {psc_amount:.2f} PSC", _mp_payment_find(tx_ref)
-    except Exception as e:
-        return False, str(e), row
-
-
-@app.route("/api/psc/topup/verify_mp", methods=["POST"])
-def api_psc_topup_verify_mp():
-    try:
-        data = request.get_json() or {}
-        tx_ref = str(data.get("tx_ref") or "").strip()
-        if not tx_ref:
-            return jsonify({"success": False, "message": "tx_ref required"}), 400
-        ok, msg, row = _mp_verify_and_credit(
-            tx_ref,
-            external_tx_id=data.get("external_tx_id"),
-            crypto_amount=data.get("crypto_amount"),
-        )
-        return jsonify({"success": ok, "message": msg,
-                        "payment": row, "gateway": "moonpay"}), (200 if ok else 400)
-    except Exception as e:
-        return jsonify({"success": False, "message": str(e)}), 500
-
-
-@app.route("/api/psc/topup/status_mp/<tx_ref>")
-def api_psc_topup_status_mp(tx_ref):
-    row = _mp_payment_find(tx_ref)
-    if not row:
-        return jsonify({"success": False, "message": "not found"}), 404
-    return jsonify({"success": True, "payment": row, "gateway": "moonpay"})
-
-
-@app.route("/api/psc/topup/history_mp/<address>")
-def api_psc_topup_history_mp(address):
-    rows = [r for r in _mp_payments_all() if r.get("wallet_address") == address]
-    return jsonify({"success": True, "payments": rows, "gateway": "moonpay"})
-
-
-@app.route("/api/psc/topup/cryptos_mp", methods=["GET"])
-def api_psc_topup_cryptos_mp():
-    cryptos = []
-    for c in MOONPAY_ALLOWED_CRYPTOS:
-        if c == "usdt":
-            cryptos.append({
-                "key": "usdt", "label": "USDT (TRC20)",
-                "network": "TRC20",
-                "aliases": ["USDT-TRC20", "USDT_TRC20", "USDTTRC20", "TRC20-USDT"],
-            })
-        elif c == "usdc":
-            cryptos.append({"key": "usdc", "label": "USDC", "network": "ERC20"})
-        elif c == "btc":
-            cryptos.append({"key": "btc", "label": "Bitcoin", "network": "Bitcoin"})
-        elif c == "eth":
-            cryptos.append({"key": "eth", "label": "Ethereum", "network": "ERC20"})
-        else:
-            cryptos.append({"key": c, "label": c.upper(), "network": ""})
-
-    return jsonify({
-        "success": True,
-        "enabled": MOONPAY_ENABLED and bool(MOONPAY_PUBLISHABLE_KEY),
-        "mode": MOONPAY_MODE,
-        "fiat_currency": MOONPAY_CURRENCY_CODE.upper(),
-        "base_crypto": MOONPAY_BASE_CURRENCY,
-        "min_kes": MOONPAY_MIN_KES,
-        "max_kes": MOONPAY_MAX_KES,
-        "cryptos": cryptos,
-    })
-
-
-@app.route("/webhooks/moonpay", methods=["POST"])
-def webhook_moonpay():
-    try:
-        raw = request.get_data() or b""
-        sent_sig = request.headers.get("Moonpay-Signature-V2", "") or request.headers.get("moonpay-signature-v2", "")
-
-        if MOONPAY_WEBHOOK_SECRET:
-            expected_sig = hmac.new(
-                MOONPAY_WEBHOOK_SECRET.encode("utf-8"),
-                raw,
-                hashlib.sha256,
-            ).hexdigest()
-            if not sent_sig or not hmac.compare_digest(sent_sig.lower(), expected_sig.lower()):
-                return jsonify({"success": False, "message": "bad signature"}), 401
-
-        body = json.loads(raw.decode("utf-8") or "{}")
-        event_type = str(body.get("type") or "").strip().lower()
-        d = body.get("data") or {}
-
-        if event_type in ("transaction_updated", "transaction.created",
-                          "transaction.completed", "transaction_updated.completed"):
-            status = str(d.get("status") or "").strip().lower()
-            tx_ref = str(d.get("externalTransactionId") or "").strip()
-            external_tx_id = str(d.get("id") or "").strip()
-            crypto_amount = d.get("cryptoAmount")
-
-            if not tx_ref:
-                return jsonify({"success": True, "message": "ignored no tx_ref"}), 200
-
-            if status not in ("completed", "succeeded"):
-                _mp_payment_update(tx_ref, mp_status=status)
-                return jsonify({"success": True, "message": "status=" + status}), 200
-
-            _mp_verify_and_credit(tx_ref, external_tx_id, crypto_amount)
-            return jsonify({"success": True}), 200
-
-        return jsonify({"success": True, "message": "ignored event"}), 200
-    except Exception as e:
-        return jsonify({"success": False, "message": str(e)}), 500
-
-
-# ============================================================
-# END MOONPAY GATEWAY
-# ============================================================
-
-# ---------- CACHE WARMER ----------
-
-# === PRIORITY_WARM_FIX ===
-# Warmer order changed: popular keywords first so browser searches
-# hit cached results quickly. Non-priority categories warm after.
-def _warm_cache():
-    # Delay warmer start so the shop is responsive on cold boot.
-    time.sleep(60)
-    while True:
-        try:
-            print(f"[PSC] Warming cache (all categories)...")
-
-            _PRIO_KEYS = {"phones","tv","appliances","health",
-                          "home","fashion","computing","gaming"}
-            _prio = [c["query"] for c in CATEGORY_GROUPS if c["key"] in _PRIO_KEYS]
-            _rest = [c["query"] for c in CATEGORY_GROUPS if c["key"] not in _PRIO_KEYS]
-            PRIORITY_KEYWORDS = _prio + _rest
-
-            for kw in PRIORITY_KEYWORDS:
-                # Pause while users are active so their requests get
-                # the scrape lock first instead of falling back.
-                waited = 0
-                while _recent_user_activity(within_seconds=15):
-                    time.sleep(3)
-                    waited += 3
-                    if waited % 15 == 0:
-                        print(f"[PSC] warmer waiting for user idle ({waited}s)")
-                try:
-                    load_products(kw)
-                    print(f"[PSC] warmed (priority): {kw}")
-                except Exception as e:
-                    print(f"[PSC] warm failed for '{kw}': {e}")
-                # === FIX 8: small jitter so the warmer does not monopolise
-                # _SCRAPE_LOCK while real users are browsing. ===
-                time.sleep(_jitter(1500, 2500) / 1000.0)
-                # === END FIX 8 ===
-
-            # Non-priority categories now warm lazily when a user
-            # visits them. The warmer only cycles the 8 priority
-            # keywords so it releases _SCRAPE_LOCK quickly.
-
-            load_products_multi(
-                ["smart tv", "smartphone", "laptop", "headphones"],
-                per_query=10
-            )
-            try:
-                _save_disk_cache(force=True)
-            except Exception:
-                pass
-            print(f"[PSC] Cache warmed. Sleeping 10 min.")
-        except Exception as e:
-            print(f"[PSC] Warm failed: {e}")
-        time.sleep(600)
-# === END PRIORITY_WARM_FIX ===
-
-def _log_request_start():
-    from flask import g
-    g._start_ts = time.time()
-
-
-@app.after_request
-def _log_request_end(response):
-    from flask import g
-    try:
-        dur = (time.time() - g._start_ts) * 1000
-        print(f"[TIMING] {request.method} {request.path} -> {response.status_code} in {dur:.0f} ms")
-    except Exception:
-        pass
-    return response
-
-
-# ---------- BACKGROUND THREADS ----------
-
-_BG_STARTED = False
-_BG_STARTED_LOCK = threading.Lock()
-
-
-def _start_background_threads_once():
-    global _BG_STARTED
-    with _BG_STARTED_LOCK:
-        if _BG_STARTED:
-            return
-        _BG_STARTED = True
-        try:
-            _ensure_wallet_dir()
-        except Exception as e:
-            print(f"[PSC] wallet dir error: {e}")
-        try:
-            _load_disk_cache()
-        except Exception as e:
-            print(f"[PSC] disk cache load error: {e}")
-        try:
-            threading.Thread(target=_warm_cache, daemon=True).start()
-            # === FIX #C ===
-            # Named the midnight-bonus thread so any future hardened/debug
-            # wrapper can detect that the original is already running and
-            # will not spawn a duplicate. Behaviour is otherwise unchanged.
-            threading.Thread(
-                target=_midnight_bonus_loop,
-                name="_midnight_bonus_loop",
-                daemon=True
-            ).start()
-            print("[PSC] Background threads started (cache warmer + midnight bonus).")
-        except Exception as e:
-            print(f"[PSC] Failed to start background threads: {e}")
-
-
-_start_background_threads_once()
-
-# ============================================================
-# ADDITIVE: BLOCKCHAIN MINING + REAL-TIME WEBSOCKET (SocketIO)
-# Nothing above is modified. All logic below is purely additive.
-#   /api/mine              -> mine a block with supplied txs
-#   /api/mine_empty        -> mine an empty block
-#   /api/blockchain        -> inspect chain (latest 10 by default)
-#   /api/blockchain/validate -> verify chain integrity
-#   SocketIO events        -> connected, subscribed, new_block,
-#                             my_block, wallet_update, pong_psc
-# ============================================================
-
-# ----- SocketIO (optional; fail-open if package missing) -----
 try:
     from flask_socketio import SocketIO, emit as ws_emit, join_room, leave_room
     _SOCKETIO_AVAILABLE = True
@@ -10697,7 +6966,6 @@ except Exception as _sio_imp_err:
     _SOCKETIO_AVAILABLE = False
 
 
-# ----- Blockchain config -----
 MINING_REWARD_PSC       = float(os.getenv("MINING_REWARD_PSC", "0.5") or 0.5)
 MINING_DIFFICULTY       = int(os.getenv("MINING_DIFFICULTY", "3") or 3)
 MINING_MAX_DIFFICULTY   = int(os.getenv("MINING_MAX_DIFFICULTY", "5") or 5)
@@ -10765,10 +7033,6 @@ def _bc_validate(chain):
 
 
 def _bc_do_mine(miner_wallet, transactions, difficulty):
-    """
-    Runs PoW while holding _BLOCKCHAIN_LOCK, then appends the block.
-    Returns (block_dict, "OK") on success, (None, reason) on failure.
-    """
     try:
         difficulty = max(1, min(int(difficulty or MINING_DIFFICULTY),
                                 MINING_MAX_DIFFICULTY))
@@ -10839,7 +7103,6 @@ def _bc_emit_new_block(block):
 
 
 def _bc_credit_reward(miner_wallet, block_index, tag="MINING_REWARD"):
-    """Credit the configured mining reward into the miner's spendable PSC."""
     if not miner_wallet or MINING_REWARD_PSC <= 0:
         return ""
     w = get_wallet(miner_wallet)
@@ -10869,8 +7132,6 @@ def _bc_extract_miner(payload):
         or ""
     ).strip()
 
-
-# ---------------- Mining endpoints ----------------
 
 @app.route("/api/mine", methods=["POST", "GET"])
 def api_mine():
@@ -10991,8 +7252,6 @@ def api_blockchain_validate():
     })
 
 
-# ---------------- SocketIO wiring ----------------
-
 if _SOCKETIO_AVAILABLE:
     socketio = SocketIO(
         app,
@@ -11039,11 +7298,6 @@ if _SOCKETIO_AVAILABLE:
     def _ws_on_ping():
         ws_emit("pong_psc", {"time": _now()})
 
-    # ---- Auto-broadcast wallet updates for ANY existing endpoint ----
-    # This is how we get real-time push WITHOUT editing existing code.
-    # Any successful JSON response from /api/wallet*, /api/account*,
-    # /api/checkout*, or /api/place* that carries a wallet + balance
-    # gets fanned out to that wallet's room.
     @app.after_request
     def _ws_wallet_broadcast(response):
         try:
@@ -11089,6 +7343,7 @@ if _SOCKETIO_AVAILABLE:
         except Exception:
             pass
         return response
+
     _original_app_run = app.run
     _psc_in_socketio_run = False
 
@@ -11097,14 +7352,9 @@ if _SOCKETIO_AVAILABLE:
         kwargs.pop("threaded", None)
 
         if _psc_in_socketio_run:
-            # We are being called from inside socketio.run() itself.
-            # Hand off to the real Werkzeug server. Werkzeug's run_simple()
-            # does not understand allow_unsafe_werkzeug — it's a
-            # flask-socketio-only kwarg. Strip it before forwarding.
             kwargs.pop("allow_unsafe_werkzeug", None)
             return _original_app_run(*args, **kwargs)
 
-        # Only the outer call (the one coming from __main__) reaches here.
         kwargs.setdefault("allow_unsafe_werkzeug", True)
         _psc_in_socketio_run = True
         try:
@@ -11114,14 +7364,99 @@ if _SOCKETIO_AVAILABLE:
 
     app.run = _socketio_app_run
 
-# ============================================================
-# END ADDITIVE: BLOCKCHAIN MINING + REAL-TIME WEBSOCKET
-# ============================================================
+
+# ---------- CACHE WARMER ----------
+
+def _warm_cache():
+    time.sleep(60)
+    while True:
+        try:
+            print(f"[PSC] Warming cache (all categories)...")
+
+            _PRIO_KEYS = {"phones","tv","appliances","health",
+                          "home","fashion","computing","gaming"}
+            _prio = [c["query"] for c in CATEGORY_GROUPS if c["key"] in _PRIO_KEYS]
+            _rest = [c["query"] for c in CATEGORY_GROUPS if c["key"] not in _PRIO_KEYS]
+            PRIORITY_KEYWORDS = _prio + _rest
+
+            for kw in PRIORITY_KEYWORDS:
+                waited = 0
+                while _recent_user_activity(within_seconds=15):
+                    time.sleep(3)
+                    waited += 3
+                    if waited % 15 == 0:
+                        print(f"[PSC] warmer waiting for user idle ({waited}s)")
+                try:
+                    load_products(kw)
+                    print(f"[PSC] warmed (priority): {kw}")
+                except Exception as e:
+                    print(f"[PSC] warm failed for '{kw}': {e}")
+                time.sleep(_jitter(1500, 2500) / 1000.0)
+
+            load_products_multi(
+                ["smart tv", "smartphone", "laptop", "headphones"],
+                per_query=10
+            )
+            try:
+                _save_disk_cache(force=True)
+            except Exception:
+                pass
+            print(f"[PSC] Cache warmed. Sleeping 10 min.")
+        except Exception as e:
+            print(f"[PSC] Warm failed: {e}")
+        time.sleep(600)
 
 
-# ---------- START APPLICATION ----------
+def _log_request_start():
+    from flask import g
+    g._start_ts = time.time()
 
-# === PSC PATCH: VENDOR TRIM (C) ===
+
+@app.after_request
+def _log_request_end(response):
+    from flask import g
+    try:
+        dur = (time.time() - g._start_ts) * 1000
+        print(f"[TIMING] {request.method} {request.path} -> {response.status_code} in {dur:.0f} ms")
+    except Exception:
+        pass
+    return response
+
+
+_BG_STARTED = False
+_BG_STARTED_LOCK = threading.Lock()
+
+
+def _start_background_threads_once():
+    global _BG_STARTED
+    with _BG_STARTED_LOCK:
+        if _BG_STARTED:
+            return
+        _BG_STARTED = True
+        try:
+            _ensure_wallet_dir()
+        except Exception as e:
+            print(f"[PSC] wallet dir error: {e}")
+        try:
+            _load_disk_cache()
+        except Exception as e:
+            print(f"[PSC] disk cache load error: {e}")
+        try:
+            threading.Thread(target=_warm_cache, daemon=True).start()
+            threading.Thread(
+                target=_midnight_bonus_loop,
+                name="_midnight_bonus_loop",
+                daemon=True
+            ).start()
+            print("[PSC] Background threads started (cache warmer + midnight bonus).")
+        except Exception as e:
+            print(f"[PSC] Failed to start background threads: {e}")
+
+
+_start_background_threads_once()
+
+
+# === PSC PATCH: VENDOR TRIM ===
 def _scrape_vendors_sequential(query, vendor=None):
     q = str(query or "electronics").strip() or "electronics"
     vendor = str(vendor or "").strip().lower() or None
@@ -11186,12 +7521,12 @@ def _scrape_vendors_sequential(query, vendor=None):
 
 _SCRAPE_COOLDOWN_SECONDS = 60
 print("[PSC PATCH] Vendor trim + 60s scrape cooldown applied.")
-# === END PSC PATCH: VENDOR TRIM ===
 
 
 if __name__ == "__main__":
     print("=" * 60)
     print("  PSC - Pulse Shopping Coin (Client Site)")
+    print("  PAYMENT GATEWAYS: DISABLED (admin-manual only)")
     print("  Open: http://localhost:5001")
     print(f"  New clients receive {WELCOME_BONUS} PSC on first visit")
     print(f"  Admin phone for top-ups: {ADMIN_PHONE}")
@@ -11203,24 +7538,22 @@ if __name__ == "__main__":
     print(f"  Admin sync file: {ADMIN_CLIENT_WALLETS_FILE}")
     print(f"  Scrape cooldown: {_SCRAPE_COOLDOWN_SECONDS}s per query")
     print("  Category images: /api/category_images (single call)")
-    print("  Vendor visibility: HIDDEN from client (source/vendor/vendor_url stripped)")
+    print("  Vendor visibility: HIDDEN from client")
     print(f"  Disk cache: {DISK_CACHE_FILE}")
-    print("  Daily VISIT bonus: ENABLED (idempotent per day, redeemable bucket)")
-    print(f"  Virtual Accounts: {'ENABLED' if VA_ENABLED else 'DISABLED (VA_ENABLED=0)'}")
-    print(f"  KYC required for VA: {'YES' if KYC_REQUIRED else 'NO'}")
+    print("  Daily VISIT bonus: ENABLED (idempotent per day)")
+    print(f"  KYC required for payout: {'YES' if KYC_REQUIRED else 'NO'}")
     print(f"  Payout velocity: {PAYOUT_VELOCITY_MAX_PER_DAY}/day, {PAYOUT_VELOCITY_MAX_PER_WEEK}/week")
     print(f"  CBK report threshold: KES {CBK_REPORT_THRESHOLD_KES:,.2f}")
     print(f"  KRA WHT threshold:    KES {KRA_WHT_THRESHOLD_KES:,.2f}")
-    print(f"  Payment gateways:     Flutterwave={'ON' if FLW_SECRET_KEY else 'OFF'} | "
-          f"Paystack={'ON' if (PAYSTACK_ENABLED and PAYSTACK_SECRET_KEY) else 'OFF'}")
-    print(f"  Wallet deposits:      deposit_max={'UNLIMITED' if WALLET_DEPOSIT_MAX_KES == 0 else f'KES {WALLET_DEPOSIT_MAX_KES:.2f}'} | "
-          f"withdraw_daily_max=KES {WALLET_WITHDRAW_DAILY_MAX_KES:.2f} | "
-          f"p2p=ENABLED")
+    print("  Payment gateways:     DISABLED (Flutterwave/Paystack/CoinGate/MoonPay removed)")
+    print(f"  Wallet deposits:      admin-manual only")
+    print(f"  Withdraw daily max:   KES {WALLET_WITHDRAW_DAILY_MAX_KES:.2f} (admin confirm)")
+    print(f"  P2P transfers:        ENABLED")
     print(f"  Savings bucket:       {'ENABLED' if WALLET_SAVINGS_ENABLED else 'DISABLED'}")
     print(f"  Deposit PSC pocket:   {'ENABLED (hold-only)' if WALLET_DEPOSIT_POCKET_ENABLED else 'DISABLED'}")
     print(f"  Wallet UI manifest:   /api/wallet/ui/<wallet>")
-    print(f"  Three-bucket credits: target='spendable' | 'savings' | 'deposit'")
-    print("  Fallback products:    ENABLED (no empty grids when scraping fails)")
+    print(f"  Three-bucket:         wallet_psc | savings_psc | deposit_psc")
+    print("  Fallback products:    ENABLED (no empty grids)")
     print("=" * 60)
 
     app.run(
