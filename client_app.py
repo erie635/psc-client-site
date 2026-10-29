@@ -377,6 +377,11 @@ def _launch_browser(p):
             "--no-sandbox",
             "--disable-dev-shm-usage",
             "--disable-gpu",
+            "--single-process",
+            "--no-zygote",
+            "--disable-accelerated-2d-canvas",
+            "--disable-setuid-sandbox",
+            "--js-flags=--max-old-space-size=128",
             "--window-size=1920,1080",
             "--start-maximized",
             "--disable-features=IsolateOrigins,site-per-process",
@@ -1576,8 +1581,17 @@ def _scrape_jumia(q, headers):
         with sync_playwright() as p:
             browser = p.chromium.launch(
                 headless=True,
-                args=["--disable-blink-features=AutomationControlled",
-                      "--no-sandbox", "--disable-dev-shm-usage", "--disable-gpu"],
+                args=[
+                    "--disable-blink-features=AutomationControlled",
+                    "--no-sandbox",
+                    "--disable-dev-shm-usage",
+                    "--disable-gpu",
+                    "--single-process",
+                    "--no-zygote",
+                    "--disable-accelerated-2d-canvas",
+                    "--disable-setuid-sandbox",
+                    "--js-flags=--max-old-space-size=128"
+                ],
             )
             page = browser.new_page(
                 user_agent=headers["User-Agent"],
@@ -1639,7 +1653,17 @@ def _scrape_kilimall(q, headers):
         from playwright.sync_api import sync_playwright
         products = []
         with sync_playwright() as p:
-            browser = p.chromium.launch(headless=True)
+            browser = p.chromium.launch(
+                headless=True,
+                args=[
+                    "--no-sandbox",
+                    "--disable-dev-shm-usage",
+                    "--disable-gpu",
+                    "--single-process",
+                    "--no-zygote",
+                    "--js-flags=--max-old-space-size=128"
+                ],
+            )
             page = browser.new_page(user_agent=headers["User-Agent"])
             page.goto(f"https://www.kilimall.co.ke/search?q={quote_plus(q)}",
                       wait_until="networkidle", timeout=30000)
@@ -1695,8 +1719,17 @@ def _scrape_carrefour(q):
         with sync_playwright() as p:
             browser = p.chromium.launch(
                 headless=True,
-                args=["--disable-blink-features=AutomationControlled",
-                      "--no-sandbox", "--disable-dev-shm-usage", "--disable-gpu"],
+                args=[
+                    "--disable-blink-features=AutomationControlled",
+                    "--no-sandbox",
+                    "--disable-dev-shm-usage",
+                    "--disable-gpu",
+                    "--single-process",
+                    "--no-zygote",
+                    "--disable-accelerated-2d-canvas",
+                    "--disable-setuid-sandbox",
+                    "--js-flags=--max-old-space-size=128"
+                ],
             )
             page = browser.new_page(
                 user_agent=("Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
@@ -1807,8 +1840,17 @@ def _scrape_jiji(q, headers):
         with sync_playwright() as p:
             browser = p.chromium.launch(
                 headless=True,
-                args=["--disable-blink-features=AutomationControlled",
-                      "--no-sandbox", "--disable-dev-shm-usage", "--disable-gpu"],
+                args=[
+                    "--disable-blink-features=AutomationControlled",
+                    "--no-sandbox",
+                    "--disable-dev-shm-usage",
+                    "--disable-gpu",
+                    "--single-process",
+                    "--no-zygote",
+                    "--disable-accelerated-2d-canvas",
+                    "--disable-setuid-sandbox",
+                    "--js-flags=--max-old-space-size=128"
+                ],
             )
             page = browser.new_page(
                 user_agent=headers["User-Agent"],
@@ -1903,8 +1945,17 @@ def _scrape_woocommerce(q, url_template, source_label, category, headers):
         with sync_playwright() as p:
             browser = p.chromium.launch(
                 headless=True,
-                args=["--disable-blink-features=AutomationControlled",
-                      "--no-sandbox", "--disable-dev-shm-usage", "--disable-gpu"],
+                args=[
+                    "--disable-blink-features=AutomationControlled",
+                    "--no-sandbox",
+                    "--disable-dev-shm-usage",
+                    "--disable-gpu",
+                    "--single-process",
+                    "--no-zygote",
+                    "--disable-accelerated-2d-canvas",
+                    "--disable-setuid-sandbox",
+                    "--js-flags=--max-old-space-size=128"
+                ],
             )
             page = browser.new_page(
                 user_agent=headers["User-Agent"],
@@ -1994,8 +2045,17 @@ def _scrape_magento(q, url_template, source_label, category, headers):
         with sync_playwright() as p:
             browser = p.chromium.launch(
                 headless=True,
-                args=["--disable-blink-features=AutomationControlled",
-                      "--no-sandbox", "--disable-dev-shm-usage", "--disable-gpu"],
+                args=[
+                    "--disable-blink-features=AutomationControlled",
+                    "--no-sandbox",
+                    "--disable-dev-shm-usage",
+                    "--disable-gpu",
+                    "--single-process",
+                    "--no-zygote",
+                    "--disable-accelerated-2d-canvas",
+                    "--disable-setuid-sandbox",
+                    "--js-flags=--max-old-space-size=128"
+                ],
             )
             page = browser.new_page(
                 user_agent=headers["User-Agent"],
@@ -2094,8 +2154,17 @@ def _scrape_generic_react(q, url_template, source_label, category, headers):
         with sync_playwright() as p:
             browser = p.chromium.launch(
                 headless=True,
-                args=["--disable-blink-features=AutomationControlled",
-                      "--no-sandbox", "--disable-dev-shm-usage", "--disable-gpu"],
+                args=[
+                    "--disable-blink-features=AutomationControlled",
+                    "--no-sandbox",
+                    "--disable-dev-shm-usage",
+                    "--disable-gpu",
+                    "--single-process",
+                    "--no-zygote",
+                    "--disable-accelerated-2d-canvas",
+                    "--disable-setuid-sandbox",
+                    "--js-flags=--max-old-space-size=128"
+                ],
             )
             page = browser.new_page(
                 user_agent=headers["User-Agent"],
@@ -5038,7 +5107,7 @@ def api_wallet_ui(wallet_addr):
         {
             "key": "redeem_daily_bonus",
             "label": "Redeem daily bonus",
-            "icon": "ðŸŽ",
+            "icon": "ðŸŽ",
             "endpoint": "/api/wallet/redeem_daily_bonus",
             "method": "POST",
             "fields": [],
@@ -7442,7 +7511,10 @@ def _start_background_threads_once():
         except Exception as e:
             print(f"[PSC] disk cache load error: {e}")
         try:
-            threading.Thread(target=_warm_cache, daemon=True).start()
+            if os.environ.get("RENDER") or os.environ.get("PSC_DISABLE_WARMER") == "1":
+                print("[PSC] Render detected or warmer disabled. Skipping cache warmer to prevent OOM.")
+            else:
+                threading.Thread(target=_warm_cache, daemon=True).start()
             threading.Thread(
                 target=_midnight_bonus_loop,
                 name="_midnight_bonus_loop",
@@ -7527,7 +7599,8 @@ if __name__ == "__main__":
     print("=" * 60)
     print("  PSC - Pulse Shopping Coin (Client Site)")
     print("  PAYMENT GATEWAYS: DISABLED (admin-manual only)")
-    print("  Open: http://localhost:5001")
+    _port = int(os.environ.get("PORT", 5001))
+    print(f"  Open: http://localhost:{_port}")
     print(f"  New clients receive {WELCOME_BONUS} PSC on first visit")
     print(f"  Admin phone for top-ups: {ADMIN_PHONE}")
     print(f"  Cache TTL: {CACHE_TTL_SECONDS} seconds (10-minute TTL)")
@@ -7559,7 +7632,7 @@ if __name__ == "__main__":
     app.run(
         debug=False,
         host="0.0.0.0",
-        port=5001,
+        port=_port,
         threaded=True,
         use_reloader=False
     )
