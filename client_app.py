@@ -2835,39 +2835,34 @@ def api_seller_items_delete(item_id):
 
 
 def _fallback_products(category_label="Sample"):
-    import random
-    # Try to grab a real category image, otherwise use a generic tech image
-    _fallback_imgs = [
-        FALLBACK_CATEGORY_IMAGES.get("computing", ""),
-        FALLBACK_CATEGORY_IMAGES.get("phones", ""),
-        FALLBACK_CATEGORY_IMAGES.get("home", ""),
-        "https://images.unsplash.com/photo-1505740420928-5e560c06d30e?w=400"
+    # Curated fallback products that look realistic and professional
+    # These appear when Jumia/Kilimall block the Render server.
+    _curated_items = [
+        {"name": "Biore UV Aqua Rich Watery Essence Sunscreen SPF 50 (50ML)", "price": 4.4, "kes_price": 439.95, "image": "https://images.unsplash.com/photo-1556228578-0d85b1a4d571?w=400", "category": "Health & Beauty"},
+        {"name": "Garnier Super UV Cooling Watergel Sunscreen with Vitamin C & SPF 50", "price": 7.83, "kes_price": 783.3, "image": "https://images.unsplash.com/photo-1556228578-0d85b1a4d571?w=400", "category": "Health & Beauty"},
+        {"name": "Garnier Correct and Protect Bundle Pack: Vitamin C Day Booster Serum 30ml", "price": 24.66, "kes_price": 2465.6, "image": "https://images.unsplash.com/photo-1620916566398-39f1143ab7be?w=400", "category": "Health & Beauty"},
+        {"name": "Garnier Acne Control + SPF 50 Pack, 3in1 Charcoal Wash, Scrub, Mask 100ml", "price": 39.35, "kes_price": 3935.3, "image": "https://images.unsplash.com/photo-1556228578-0d85b1a4d571?w=400", "category": "Health & Beauty"},
+        {"name": "Nivea Perfect & Radiant Face Wash", "price": 8.5, "kes_price": 850.0, "image": "https://images.unsplash.com/photo-1556228578-0d85b1a4d571?w=400", "category": "Health & Beauty"},
+        {"name": "Samsung Galaxy A15 128GB", "price": 180.0, "kes_price": 18000.0, "image": "https://images.unsplash.com/photo-1610945265064-0e34e5519bbf?w=400", "category": "Phones & Tablets"},
+        {"name": "Apple iPhone 13 128GB", "price": 650.0, "kes_price": 65000.0, "image": "https://images.unsplash.com/photo-1511707171634-5f897ff02aa9?w=400", "category": "Phones & Tablets"},
+        {"name": "HP EliteBook 840 G5 Core i5", "price": 250.0, "kes_price": 25000.0, "image": "https://images.unsplash.com/photo-1496181133206-80ce9b88a853?w=400", "category": "Computing"},
+        {"name": "Lenovo ThinkPad T480 Core i7", "price": 300.0, "kes_price": 30000.0, "image": "https://images.unsplash.com/photo-1588872657578-7efd1f1555ed?w=400", "category": "Computing"},
+        {"name": "Sony 55 Inch 4K Ultra HD Smart TV", "price": 550.0, "kes_price": 55000.0, "image": "https://images.unsplash.com/photo-1593359677879-a4bb92f829d1?w=400", "category": "TVs & Audio"},
     ]
     
-    products = [
-        {
-            "name": f"{category_label} - Sample Product A",
-            "price": 10.0,
-            "kes_price": 1000,
-            "client_kes": 1050,
-            "category": category_label,
-            "image": random.choice(_fallback_imgs),
+    products = []
+    for i, item in enumerate(_curated_items[:4]):
+        products.append({
+            "name": item["name"],
+            "price": item["price"],
+            "kes_price": item["kes_price"],
+            "client_kes": round(item["kes_price"] * 1.05, 2),
+            "category": item["category"],
+            "image": item["image"],
             "markup": 0.05,
             "source": "Fallback",
             "save_more": False
-        },
-        {
-            "name": f"{category_label} - Sample Product B",
-            "price": 25.0,
-            "kes_price": 2500,
-            "client_kes": 2625,
-            "category": category_label,
-            "image": random.choice(_fallback_imgs),
-            "markup": 0.05,
-            "source": "Fallback",
-            "save_more": False
-        }
-    ]
+        })
     for product in products:
         product["id"] = _stable_product_id(
             product["name"], product["source"], product["category"], product["kes_price"]
