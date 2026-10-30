@@ -3098,6 +3098,23 @@ def _tag_new(products):
     return products
 
 
+def _get_shuffled_categories():
+    import random
+    shuffled = []
+    for cat in CATEGORY_GROUPS:
+        new_cat = cat.copy()
+        # Try to find a real product image from the cache for this category
+        products = _cache_get(f"products::all::{cat['query'].lower()}") or []
+        if not products:
+            products = _cache_get_soft(f"products::all::{cat['query'].lower()}") or []
+        
+        valid_images = [p.get("image") for p in products if p.get("image")]
+        if valid_images:
+            new_cat["image"] = random.choice(valid_images)
+        # If no cached products, it safely falls back to the Unsplash image already in the dict
+        shuffled.append(new_cat)
+    return shuffled
+
 def _build_hero(products, limit=10):
     with_img = [p for p in products if p.get("image")]
     random.shuffle(with_img)
@@ -5334,7 +5351,7 @@ def index():
                 query=cat["query"],
                 active_category=category_key,
                 active_category_label=cat["label"],
-                categories=CATEGORY_GROUPS,
+                categories=_get_shuffled_categories(),
                 new_items=[],
                 top_selling=[],
                 hero_items=_strip_products_for_client(hero),
@@ -5408,7 +5425,7 @@ def index():
         query=query,
         active_category="",
         active_category_label="",
-        categories=CATEGORY_GROUPS,
+        categories=_get_shuffled_categories(),
         new_items=_strip_products_for_client(new_items),
         top_selling=_strip_products_for_client(top_selling),
         hero_items=_strip_products_for_client(hero_items),
