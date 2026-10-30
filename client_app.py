@@ -272,6 +272,25 @@ PSC_PROXY_SERVERS  = [
 ]
 
 
+
+def _requests_proxy_config():
+    server = ""
+    if PSC_PROXY_SERVERS:
+        server = random.choice(PSC_PROXY_SERVERS)
+    elif PSC_PROXY_SERVER:
+        server = PSC_PROXY_SERVER
+    if not server:
+        return None
+    if PSC_PROXY_USERNAME and PSC_PROXY_PASSWORD:
+        from urllib.parse import urlparse, urlunparse
+        parsed = urlparse(server)
+        if parsed.hostname:
+            netloc = f"{PSC_PROXY_USERNAME}:{PSC_PROXY_PASSWORD}@{parsed.hostname}"
+            if parsed.port:
+                netloc += f":{parsed.port}"
+            server = urlunparse((parsed.scheme, netloc, parsed.path, parsed.params, parsed.query, parsed.fragment))
+    return {"http": server, "https": server}
+
 def _playwright_proxy_config():
     server = ""
     if PSC_PROXY_SERVERS:
@@ -1529,7 +1548,8 @@ def _scrape_jumia(q, headers):
 
     if time.time() >= _JUMIA_REQUESTS_BLOCKED_UNTIL:
         try:
-            resp = _req.get(url, headers=headers, timeout=15)
+            proxy_dict = _requests_proxy_config()
+            resp = _req.get(url, headers=headers, timeout=15, proxies=proxy_dict)
             if resp.status_code == 403:
                 _JUMIA_REQUESTS_BLOCKED_UNTIL = time.time() + _JUMIA_REQUESTS_BLOCK_SECONDS
                 print(f"[PSC SCRAPE] Jumia 403; requests path disabled for {_JUMIA_REQUESTS_BLOCK_SECONDS}s")
@@ -1584,6 +1604,7 @@ def _scrape_jumia(q, headers):
         with sync_playwright() as p:
             browser = p.chromium.launch(
                 headless=True,
+                proxy=_playwright_proxy_config(),
                 args=[
                     "--disable-blink-features=AutomationControlled",
                     "--no-sandbox",
@@ -1663,6 +1684,7 @@ def _scrape_kilimall(q, headers):
         with sync_playwright() as p:
             browser = p.chromium.launch(
                 headless=True,
+                proxy=_playwright_proxy_config(),
                 args=[
                     "--no-sandbox",
                     "--disable-dev-shm-usage",
@@ -1727,6 +1749,7 @@ def _scrape_carrefour(q):
         with sync_playwright() as p:
             browser = p.chromium.launch(
                 headless=True,
+                proxy=_playwright_proxy_config(),
                 args=[
                     "--disable-blink-features=AutomationControlled",
                     "--no-sandbox",
@@ -1853,6 +1876,7 @@ def _scrape_jiji(q, headers):
         with sync_playwright() as p:
             browser = p.chromium.launch(
                 headless=True,
+                proxy=_playwright_proxy_config(),
                 args=[
                     "--disable-blink-features=AutomationControlled",
                     "--no-sandbox",
@@ -1958,6 +1982,7 @@ def _scrape_woocommerce(q, url_template, source_label, category, headers):
         with sync_playwright() as p:
             browser = p.chromium.launch(
                 headless=True,
+                proxy=_playwright_proxy_config(),
                 args=[
                     "--disable-blink-features=AutomationControlled",
                     "--no-sandbox",
@@ -2063,6 +2088,7 @@ def _scrape_magento(q, url_template, source_label, category, headers):
         with sync_playwright() as p:
             browser = p.chromium.launch(
                 headless=True,
+                proxy=_playwright_proxy_config(),
                 args=[
                     "--disable-blink-features=AutomationControlled",
                     "--no-sandbox",
@@ -2177,6 +2203,7 @@ def _scrape_generic_react(q, url_template, source_label, category, headers):
         with sync_playwright() as p:
             browser = p.chromium.launch(
                 headless=True,
+                proxy=_playwright_proxy_config(),
                 args=[
                     "--disable-blink-features=AutomationControlled",
                     "--no-sandbox",
@@ -3009,9 +3036,7 @@ def load_products(query, allow_block=True, vendor=None):
 
     if _scrape_recently_done(query_key):
         print(f"[PSC SEARCH] '{vendor or 'all'}:{query}' in cooldown, returning empty.")
-        fb = _fallback_products(query.title())
-        _register_products(fb)
-        return fb
+        return []
 
     acquired = _SCRAPE_LOCK.acquire(blocking=True, timeout=60)
     if not acquired:
@@ -3019,10 +3044,8 @@ def load_products(query, allow_block=True, vendor=None):
         if cached is not None:
             _register_products(cached)
             return cached
-        print(f"[PSC SEARCH] Lock busy for '{vendor or 'all'}:{query}'; serving placeholder.")
-        fb = _fallback_products(query.title())
-        _register_products(fb)
-        return fb
+        print(f"[PSC SEARCH] Lock busy for '{vendor or 'all'}:{query}'; returning empty.")
+        return []
 
     try:
         cached = _cache_get(cache_key)
@@ -3032,9 +3055,7 @@ def load_products(query, allow_block=True, vendor=None):
 
         if _scrape_recently_done(query_key):
             print(f"[PSC SEARCH] '{vendor or 'all'}:{query}' in cooldown after wait, returning empty.")
-            fb = _fallback_products(query.title())
-            _register_products(fb)
-            return fb
+            return []
 
         all_products = _load_products_live(query, vendor=vendor)
 
