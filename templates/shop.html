@@ -3476,5 +3476,69 @@ function loadWalletChip() {
 
 
 
+
+<!-- BEGIN MOBILE UI FIXES -->
+<style>
+@media (max-width: 768px) {
+    /* 1. Header & Topbar - Make it compact */
+    .topbar { padding: 10px 15px; }
+    .topbar h1 { font-size: 1.15rem; margin-bottom: 5px; }
+    .topbar .right-tools { flex-direction: column; align-items: stretch; gap: 8px; }
+    .wallet-chip { font-size: 0.75rem; padding: 8px 10px; flex-wrap: wrap; justify-content: center; }
+    .wallet-chip button { padding: 3px 8px; font-size: 0.7rem; margin: 2px; }
+    .account-btn, .three-dot-btn { padding: 6px 12px; font-size: 0.85rem; height: 36px; }
+    .three-dot-btn { width: 36px; height: 36px; }
+    
+    /* 2. Search Bar - Keep it horizontal and small */
+    .search-bar { flex-direction: row !important; gap: 5px; }
+    .search-bar input { padding: 10px 12px; font-size: 0.85rem; flex: 1; min-width: 0; border-radius: 8px; }
+    .search-bar button { padding: 10px 15px; font-size: 0.85rem; width: auto; flex-shrink: 0; border-radius: 8px; }
+
+    /* 3. Hero Carousel - Reduce height drastically */
+    .hero-wrap { height: 220px !important; margin-bottom: 15px; border-radius: 10px; }
+    .hero-slide { padding: 15px; }
+    .hero-slide .hero-title { font-size: 1.1rem; margin-bottom: 5px; }
+    .hero-slide .hero-price { font-size: 1.2rem; }
+    .hero-slide .hero-kes { font-size: 0.75rem; margin-bottom: 10px; }
+    .hero-slide .hero-cta { padding: 8px 16px; font-size: 0.8rem; }
+    .hero-slide .hero-img-box { width: 100px; height: 100px; margin-top: 0; align-self: center; }
+    .hero-slide .hero-tag { font-size: 0.6rem; padding: 3px 8px; }
+
+    /* 4. Category Circles - Make smaller */
+    .category-circles { padding: 10px 0; gap: 12px; }
+    .cat-circle { min-width: 70px; }
+    .cat-circle .circle { width: 60px; height: 60px; border-width: 2px; }
+    .cat-circle .circle img { width: 100%; height: 100%; object-fit: cover; }
+    .cat-circle .cat-name { font-size: 0.7rem; }
+
+    /* 5. Cart Panel - Compact items, horizontal layout */
+    .cart-panel { padding: 10px !important; margin-bottom: 15px; }
+    .cart-panel h2 { font-size: 1rem; margin-bottom: 8px; }
+    .cart-item { flex-direction: row !important; align-items: center; flex-wrap: wrap; padding: 8px; gap: 5px; }
+    .cart-item .name { font-size: 0.8rem; width: 100%; margin-bottom: 4px; }
+    .cart-item .qty { flex-shrink: 0; padding: 2px; }
+    .cart-item .qty button { width: 22px; height: 22px; font-size: 0.9rem; }
+    .cart-item .sub { font-size: 0.9rem; width: auto; margin-left: auto; font-weight: 700; }
+    .cart-item .remove { width: 24px; height: 24px; font-size: 0.75rem; }
+    .cart-footer { flex-direction: row !important; justify-content: space-between; align-items: center; padding-top: 10px; }
+    .cart-footer .total-amount { font-size: 1.2rem; }
+    .cart-footer button { width: auto !important; padding: 10px 15px; font-size: 0.85rem; }
+
+    /* 6. Products Grid */
+    .products { grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)) !important; gap: 10px; }
+    .product { padding: 10px; }
+    .product img, .product .ph { height: 120px; }
+    .product h3 { font-size: 0.8rem; margin-bottom: 5px; }
+    .product .price { font-size: 1.05rem; margin-bottom: 2px; }
+    .product .kes { font-size: 0.75rem; margin-bottom: 8px; }
+    .product button { padding: 8px 5px; font-size: 0.75rem; }
+
+    /* 7. General Container */
+    .container { padding: 10px !important; }
+    .card { padding: 12px; border-radius: 10px; }
+}
+</style>
+<!-- END MOBILE UI FIXES -->
+
 </body>
 </html>
