@@ -1509,6 +1509,11 @@ FALLBACK_CATEGORY_IMAGES = {
     "canned": "https://images.unsplash.com/photo-1584473457493-17c4c24290c8?w=400",
 }
 
+# Automatically attach fallback images to categories for the frontend
+for _cat in CATEGORY_GROUPS:
+    if "image" not in _cat or not _cat["image"]:
+        _cat["image"] = FALLBACK_CATEGORY_IMAGES.get(_cat["key"], "")
+
 
 # ---------- PRODUCT SOURCES ----------
 
