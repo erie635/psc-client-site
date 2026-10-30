@@ -5162,14 +5162,7 @@ def api_category_images():
         for cat in CATEGORY_GROUPS:
             key = cat["key"]
 
-            cached = _CATEGORY_IMAGE_CACHE.get(key)
-            if cached and (time.time() - cached.get("ts", 0)) < _CATEGORY_IMAGE_TTL:
-                result[key] = {
-                    "image": cached.get("image", ""),
-                    "name":  cached.get("name", ""),
-                    "emoji": cat.get("emoji", ""),
-                }
-                continue
+            # Cache bypassed to allow live 15s updates
 
             products = _cache_get(f"products::all::{cat['query'].lower()}") or []
             if not products:
@@ -5179,6 +5172,7 @@ def api_category_images():
 
             pick = None
             _kw = [w for w in cat["query"].lower().split() if len(w) >= 3]
+            valid_picks = []
             for p in products:
                 if not p or not p.get("image"):
                     continue
@@ -5187,8 +5181,10 @@ def api_category_images():
                             str(p.get("category", ""))).lower()
                     if not any(w in _hay for w in _kw):
                         continue
-                pick = p
-                break
+                valid_picks.append(p)
+            
+            if valid_picks:
+                pick = random.choice(valid_picks)
 
             if pick:
                 _CATEGORY_IMAGE_CACHE[key] = {
