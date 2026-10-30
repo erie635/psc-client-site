@@ -247,14 +247,12 @@ _VENDOR_SCRAPE_TIMEOUT_SECONDS = 90
 _VENDOR_EXECUTOR_MAX_WORKERS = 4
 
 _USER_AGENTS = [
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Safari/605.1.15",
-    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:125.0) Gecko/20100101 Firefox/125.0",
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_4) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Mobile Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Linux; Android 14; SM-S918B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Mobile Safari/537.36",
+    "Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:126.0) Gecko/20100101 Firefox/126.0",
+    "Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:125.0) Gecko/20100101 Firefox/125.0",
 ]
 
 
@@ -1603,8 +1601,13 @@ def _scrape_jumia(q, headers):
                 viewport={"width": 1440, "height": 1000},
                 locale="en-KE", timezone_id="Africa/Nairobi",
             )
-            page.add_init_script("Object.defineProperty(navigator, 'webdriver', { get: () => undefined });")
-            try: page.goto(url, wait_until="domcontentloaded", timeout=15000)
+            page.add_init_script('''
+                Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
+                Object.defineProperty(navigator, 'languages', { get: () => ['en-KE', 'en-US', 'en'] });
+                Object.defineProperty(navigator, 'plugins', { get: () => [1, 2, 3, 4, 5] });
+                window.chrome = { runtime: {} };
+            ''')
+            try: page.goto(url, wait_until="domcontentloaded", timeout=20000)
             except Exception: pass
             page.wait_for_timeout(3000)
             try: page.wait_for_selector("article.prd, article.-pvxs, article[data-catalog-product]", timeout=12000)
@@ -1671,9 +1674,9 @@ def _scrape_kilimall(q, headers):
             )
             page = browser.new_page(user_agent=headers["User-Agent"])
             page.goto(f"https://www.kilimall.co.ke/search?q={quote_plus(q)}",
-                      wait_until="networkidle", timeout=15000)
+                      wait_until="networkidle", timeout=20000)
             try:
-                page.wait_for_selector("div.product-item img[src]", timeout=15000)
+                page.wait_for_selector("div.product-item img[src]", timeout=20000)
             except Exception:
                 pass
             cards = page.query_selector_all("div.product-item")[:20]
@@ -1743,11 +1746,16 @@ def _scrape_carrefour(q):
                 viewport={"width": 1440, "height": 1000},
                 locale="en-KE", timezone_id="Africa/Nairobi",
             )
-            page.add_init_script("Object.defineProperty(navigator, 'webdriver', { get: () => undefined });")
+            page.add_init_script('''
+                Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
+                Object.defineProperty(navigator, 'languages', { get: () => ['en-KE', 'en-US', 'en'] });
+                Object.defineProperty(navigator, 'plugins', { get: () => [1, 2, 3, 4, 5] });
+                window.chrome = { runtime: {} };
+            ''')
             try:
                 page.goto(
                     f"https://www.carrefour.ke/mafken/en/search?keyword={quote_plus(q)}",
-                    wait_until="domcontentloaded", timeout=15000,
+                    wait_until="domcontentloaded", timeout=20000,
                 )
             except Exception:
                 pass
@@ -1967,10 +1975,15 @@ def _scrape_woocommerce(q, url_template, source_label, category, headers):
                 viewport={"width": 1440, "height": 1000},
                 locale="en-KE", timezone_id="Africa/Nairobi",
             )
-            page.add_init_script("Object.defineProperty(navigator, 'webdriver', { get: () => undefined });")
+            page.add_init_script('''
+                Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
+                Object.defineProperty(navigator, 'languages', { get: () => ['en-KE', 'en-US', 'en'] });
+                Object.defineProperty(navigator, 'plugins', { get: () => [1, 2, 3, 4, 5] });
+                window.chrome = { runtime: {} };
+            ''')
             url = url_template.format(q=quote_plus(q))
             try:
-                page.goto(url, wait_until="domcontentloaded", timeout=15000)
+                page.goto(url, wait_until="domcontentloaded", timeout=20000)
             except Exception:
                 pass
             page.wait_for_timeout(2500)
@@ -2067,10 +2080,15 @@ def _scrape_magento(q, url_template, source_label, category, headers):
                 viewport={"width": 1440, "height": 1000},
                 locale="en-KE", timezone_id="Africa/Nairobi",
             )
-            page.add_init_script("Object.defineProperty(navigator, 'webdriver', { get: () => undefined });")
+            page.add_init_script('''
+                Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
+                Object.defineProperty(navigator, 'languages', { get: () => ['en-KE', 'en-US', 'en'] });
+                Object.defineProperty(navigator, 'plugins', { get: () => [1, 2, 3, 4, 5] });
+                window.chrome = { runtime: {} };
+            ''')
             url = url_template.format(q=quote_plus(q))
             try:
-                page.goto(url, wait_until="domcontentloaded", timeout=15000)
+                page.goto(url, wait_until="domcontentloaded", timeout=20000)
             except Exception:
                 pass
             page.wait_for_timeout(3000)
@@ -2176,10 +2194,15 @@ def _scrape_generic_react(q, url_template, source_label, category, headers):
                 viewport={"width": 1440, "height": 1000},
                 locale="en-KE", timezone_id="Africa/Nairobi",
             )
-            page.add_init_script("Object.defineProperty(navigator, 'webdriver', { get: () => undefined });")
+            page.add_init_script('''
+                Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
+                Object.defineProperty(navigator, 'languages', { get: () => ['en-KE', 'en-US', 'en'] });
+                Object.defineProperty(navigator, 'plugins', { get: () => [1, 2, 3, 4, 5] });
+                window.chrome = { runtime: {} };
+            ''')
             url = url_template.format(q=quote_plus(q))
             try:
-                page.goto(url, wait_until="domcontentloaded", timeout=15000)
+                page.goto(url, wait_until="domcontentloaded", timeout=20000)
             except Exception:
                 pass
             page.wait_for_timeout(4500)
