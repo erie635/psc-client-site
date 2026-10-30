@@ -2445,17 +2445,17 @@ function loadWalletChip() {
             if (pid) removeFromCart(pid);
         });
 
-        setInterval(() => {
+        setInterval(function() {
             countdown--;
 
             if (countdown <= 0) {
                 countdown = 30;
-                dbgLog('30s tick → refreshProducts(false)');
-                refreshProducts(false);
-                loadWalletChip();
+                // FORCE live fetch (true) instead of reading from the 60s cache
+                if (typeof refreshProducts === 'function') refreshProducts(true);
+                if (typeof loadWalletChip === 'function') loadWalletChip();
             }
 
-            const el = document.getElementById('countdown');
+            var el = document.getElementById('countdown');
             if (el) el.textContent = countdown;
         }, 1000);
 
