@@ -1543,7 +1543,7 @@ def _scrape_jumia(q, headers):
                          or soup.select("article[data-ga4-item_id]"))
                 print(f"[PSC SCRAPE] Jumia matched {len(cards)} cards (requests) for '{q}'")
                 products = []
-                for i, card in enumerate(cards[:20], start=1):
+                for i, card in enumerate(cards[:30], start=1):
                     try:
                         name = card.get("data-moengage-product_name")
                         if not name:
@@ -1613,7 +1613,7 @@ def _scrape_jumia(q, headers):
             if not cards: cards = page.query_selector_all("article.-pvxs")
             if not cards: cards = page.query_selector_all("article[data-catalog-product]")
             print(f"[PSC SCRAPE] Jumia matched {len(cards)} cards (Playwright) for '{q}'")
-            for i, card in enumerate(cards[:20], start=1):
+            for i, card in enumerate(cards[:30], start=1):
                 try:
                     name = card.get_attribute("data-moengage-product_name") or ""
                     if not name:
@@ -1883,7 +1883,7 @@ def _scrape_jiji(q, headers):
             cards = (page.query_selector_all(card_selector) if card_selector
                      else page.query_selector_all("a[href*='/item/']"))
             seen_titles = set()
-            for i, card in enumerate(cards[:20], start=1):
+            for i, card in enumerate(cards[:30], start=1):
                 try:
                     te = (card.query_selector("[class*='b-advert-title']")
                           or card.query_selector("[class*='advert-title']")
@@ -1988,7 +1988,7 @@ def _scrape_woocommerce(q, url_template, source_label, category, headers):
                 cards = page.query_selector_all("div.product-small")
             print("[PSC SCRAPE] " + source_label + " matched " + str(len(cards)) + " cards for '" + q + "'")
             seen = set()
-            for i, card in enumerate(cards[:20], start=1):
+            for i, card in enumerate(cards[:30], start=1):
                 try:
                     ne = (card.query_selector(".woocommerce-loop-product__title")
                           or card.query_selector("h3")
@@ -2092,7 +2092,7 @@ def _scrape_magento(q, url_template, source_label, category, headers):
                 cards = page.query_selector_all(".product-card")
             print("[PSC SCRAPE] " + source_label + " matched " + str(len(cards)) + " cards for '" + q + "'")
             seen = set()
-            for i, card in enumerate(cards[:20], start=1):
+            for i, card in enumerate(cards[:30], start=1):
                 try:
                     ne = (card.query_selector(".product-item-link")
                           or card.query_selector(".product-item-name a")
@@ -2202,7 +2202,7 @@ def _scrape_generic_react(q, url_template, source_label, category, headers):
                 browser.close()
                 return []
             seen = set()
-            for i, card in enumerate(cards[:20], start=1):
+            for i, card in enumerate(cards[:30], start=1):
                 try:
                     ne = (card.query_selector("h3, h2, h4")
                           or card.query_selector("[class*='name']")
@@ -2847,19 +2847,22 @@ def _fallback_products(category_label="Sample"):
         {"name": "LG 43 Inch Smart LED TV", "price": 320.0, "kes_price": 32000.0, "image": "https://images.unsplash.com/photo-1593359677879-a4bb92f829d1?w=400", "category": "TVs & Audio"}
     ]
     
-    # Try to match the category the user clicked
     matching = [i for i in _curated_items if category_label.lower() in i["category"].lower() or i["category"].lower() in category_label.lower()]
     if not matching:
-        matching = _curated_items  # Fallback to all if no match
+        matching = _curated_items
         
     products = []
-    for i, item in enumerate(matching[:4]):
+    # Loop to generate exactly 20 items, adding variants if we don't have 20 unique ones
+    for i in range(20):
+        item = matching[i % len(matching)]
+        variant_name = item["name"] if i < len(matching) else f"{item['name']} - Edition {i//len(matching) + 1}"
+        
         products.append({
             "id": 100000 + i,
-            "name": item["name"],
-            "price": item["price"],
-            "kes_price": item["kes_price"],
-            "client_kes": round(item["kes_price"] * 1.05, 2),
+            "name": variant_name,
+            "price": item["price"] + (i * 0.1), # Slightly vary the price for realism
+            "kes_price": item["kes_price"] + (i * 10),
+            "client_kes": round((item["kes_price"] + (i * 10)) * 1.05, 2),
             "category": item["category"],
             "image": item["image"],
             "markup": 0.05,
