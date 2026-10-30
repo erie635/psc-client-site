@@ -1604,7 +1604,7 @@ def _scrape_jumia(q, headers):
                 locale="en-KE", timezone_id="Africa/Nairobi",
             )
             page.add_init_script("Object.defineProperty(navigator, 'webdriver', { get: () => undefined });")
-            try: page.goto(url, wait_until="domcontentloaded", timeout=45000)
+            try: page.goto(url, wait_until="domcontentloaded", timeout=15000)
             except Exception: pass
             page.wait_for_timeout(3000)
             try: page.wait_for_selector("article.prd, article.-pvxs, article[data-catalog-product]", timeout=12000)
@@ -1671,7 +1671,7 @@ def _scrape_kilimall(q, headers):
             )
             page = browser.new_page(user_agent=headers["User-Agent"])
             page.goto(f"https://www.kilimall.co.ke/search?q={quote_plus(q)}",
-                      wait_until="networkidle", timeout=30000)
+                      wait_until="networkidle", timeout=15000)
             try:
                 page.wait_for_selector("div.product-item img[src]", timeout=15000)
             except Exception:
@@ -1747,7 +1747,7 @@ def _scrape_carrefour(q):
             try:
                 page.goto(
                     f"https://www.carrefour.ke/mafken/en/search?keyword={quote_plus(q)}",
-                    wait_until="domcontentloaded", timeout=45000,
+                    wait_until="domcontentloaded", timeout=15000,
                 )
             except Exception:
                 pass
@@ -1864,7 +1864,7 @@ def _scrape_jiji(q, headers):
             )
             try:
                 page.goto(f"https://jiji.co.ke/search?query={quote_plus(q)}",
-                          wait_until="domcontentloaded", timeout=60000)
+                          wait_until="domcontentloaded", timeout=20000)
             except Exception:
                 pass
             page.wait_for_timeout(4000)
@@ -1970,7 +1970,7 @@ def _scrape_woocommerce(q, url_template, source_label, category, headers):
             page.add_init_script("Object.defineProperty(navigator, 'webdriver', { get: () => undefined });")
             url = url_template.format(q=quote_plus(q))
             try:
-                page.goto(url, wait_until="domcontentloaded", timeout=45000)
+                page.goto(url, wait_until="domcontentloaded", timeout=15000)
             except Exception:
                 pass
             page.wait_for_timeout(2500)
@@ -2070,7 +2070,7 @@ def _scrape_magento(q, url_template, source_label, category, headers):
             page.add_init_script("Object.defineProperty(navigator, 'webdriver', { get: () => undefined });")
             url = url_template.format(q=quote_plus(q))
             try:
-                page.goto(url, wait_until="domcontentloaded", timeout=45000)
+                page.goto(url, wait_until="domcontentloaded", timeout=15000)
             except Exception:
                 pass
             page.wait_for_timeout(3000)
@@ -2179,7 +2179,7 @@ def _scrape_generic_react(q, url_template, source_label, category, headers):
             page.add_init_script("Object.defineProperty(navigator, 'webdriver', { get: () => undefined });")
             url = url_template.format(q=quote_plus(q))
             try:
-                page.goto(url, wait_until="domcontentloaded", timeout=45000)
+                page.goto(url, wait_until="domcontentloaded", timeout=15000)
             except Exception:
                 pass
             page.wait_for_timeout(4500)
@@ -2835,6 +2835,15 @@ def api_seller_items_delete(item_id):
 
 
 def _fallback_products(category_label="Sample"):
+    import random
+    # Try to grab a real category image, otherwise use a generic tech image
+    _fallback_imgs = [
+        FALLBACK_CATEGORY_IMAGES.get("computing", ""),
+        FALLBACK_CATEGORY_IMAGES.get("phones", ""),
+        FALLBACK_CATEGORY_IMAGES.get("home", ""),
+        "https://images.unsplash.com/photo-1505740420928-5e560c06d30e?w=400"
+    ]
+    
     products = [
         {
             "name": f"{category_label} - Sample Product A",
@@ -2842,7 +2851,7 @@ def _fallback_products(category_label="Sample"):
             "kes_price": 1000,
             "client_kes": 1050,
             "category": category_label,
-            "image": "",
+            "image": random.choice(_fallback_imgs),
             "markup": 0.05,
             "source": "Fallback",
             "save_more": False
@@ -2853,7 +2862,7 @@ def _fallback_products(category_label="Sample"):
             "kes_price": 2500,
             "client_kes": 2625,
             "category": category_label,
-            "image": "",
+            "image": random.choice(_fallback_imgs),
             "markup": 0.05,
             "source": "Fallback",
             "save_more": False
