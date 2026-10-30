@@ -1607,7 +1607,7 @@ def _scrape_jumia(q, headers):
                 Object.defineProperty(navigator, 'plugins', { get: () => [1, 2, 3, 4, 5] });
                 window.chrome = { runtime: {} };
             ''')
-            try: page.goto(url, wait_until="domcontentloaded", timeout=20000)
+            try: page.goto(url, wait_until="domcontentloaded", timeout=30000)
             except Exception: pass
             page.wait_for_timeout(3000)
             try: page.wait_for_selector("article.prd, article.-pvxs, article[data-catalog-product]", timeout=12000)
@@ -1674,9 +1674,9 @@ def _scrape_kilimall(q, headers):
             )
             page = browser.new_page(user_agent=headers["User-Agent"])
             page.goto(f"https://www.kilimall.co.ke/search?q={quote_plus(q)}",
-                      wait_until="networkidle", timeout=20000)
+                      wait_until="networkidle", timeout=30000)
             try:
-                page.wait_for_selector("div.product-item img[src]", timeout=20000)
+                page.wait_for_selector("div.product-item img[src]", timeout=30000)
             except Exception:
                 pass
             cards = page.query_selector_all("div.product-item")[:20]
@@ -1755,7 +1755,7 @@ def _scrape_carrefour(q):
             try:
                 page.goto(
                     f"https://www.carrefour.ke/mafken/en/search?keyword={quote_plus(q)}",
-                    wait_until="domcontentloaded", timeout=20000,
+                    wait_until="domcontentloaded", timeout=30000,
                 )
             except Exception:
                 pass
@@ -1872,7 +1872,7 @@ def _scrape_jiji(q, headers):
             )
             try:
                 page.goto(f"https://jiji.co.ke/search?query={quote_plus(q)}",
-                          wait_until="domcontentloaded", timeout=20000)
+                          wait_until="domcontentloaded", timeout=30000)
             except Exception:
                 pass
             page.wait_for_timeout(4000)
@@ -1983,7 +1983,7 @@ def _scrape_woocommerce(q, url_template, source_label, category, headers):
             ''')
             url = url_template.format(q=quote_plus(q))
             try:
-                page.goto(url, wait_until="domcontentloaded", timeout=20000)
+                page.goto(url, wait_until="domcontentloaded", timeout=30000)
             except Exception:
                 pass
             page.wait_for_timeout(2500)
@@ -2088,7 +2088,7 @@ def _scrape_magento(q, url_template, source_label, category, headers):
             ''')
             url = url_template.format(q=quote_plus(q))
             try:
-                page.goto(url, wait_until="domcontentloaded", timeout=20000)
+                page.goto(url, wait_until="domcontentloaded", timeout=30000)
             except Exception:
                 pass
             page.wait_for_timeout(3000)
@@ -2202,7 +2202,7 @@ def _scrape_generic_react(q, url_template, source_label, category, headers):
             ''')
             url = url_template.format(q=quote_plus(q))
             try:
-                page.goto(url, wait_until="domcontentloaded", timeout=20000)
+                page.goto(url, wait_until="domcontentloaded", timeout=30000)
             except Exception:
                 pass
             page.wait_for_timeout(4500)
@@ -3050,16 +3050,8 @@ def load_products(query, allow_block=True, vendor=None):
             print(f"[PSC SEARCH] '{vendor or 'all'}:{query}' returned {len(all_products)} real products.")
             return all_products
 
-        print(f"[PSC SEARCH] No real products found for '{vendor or 'all'}:{query}'. Serving fallback.")
-        fb = _fallback_products(query.title())
-        _register_products(fb)
-        _fallback_ttl = 60
-        with _CACHE_LOCK:
-            _PRODUCT_CACHE_DB[cache_key] = (
-                time.time() - (CACHE_TTL_SECONDS - _fallback_ttl), fb
-            )
-        _cache_save_async()
-        return fb
+        print(f"[PSC SEARCH] No real products found for '{vendor or 'all'}:{query}'.")
+        return []
 
     finally:
         _SCRAPE_LOCK.release()
