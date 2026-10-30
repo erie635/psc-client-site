@@ -7595,6 +7595,33 @@ _SCRAPE_COOLDOWN_SECONDS = 60
 print("[PSC PATCH] Vendor trim + 60s scrape cooldown applied.")
 
 
+
+@app.route("/api/hero_categories")
+def api_hero_categories():
+    try:
+        result = []
+        for cat in CATEGORY_GROUPS:
+            key = cat["key"]
+            cached = _CATEGORY_IMAGE_CACHE.get(key)
+            img = ""
+            if cached:
+                img = cached.get("image", "")
+            else:
+                img = FALLBACK_CATEGORY_IMAGES.get(key, "")
+                products = _cache_get(f"products::all::{cat['query'].lower()}") or []
+                if not products:
+                    products = _cache_get_soft(f"products::all::{cat['query'].lower()}") or []
+                for p in products:
+                    if p.get("image"):
+                        img = p["image"]
+                        break
+            result.append({"key": key, "label": cat["label"], "image": img})
+        import random
+        random.shuffle(result)
+        return jsonify({"success": True, "categories": result[:8]})
+    except Exception as e:
+        return jsonify({"success": False, "message": str(e)}), 500
+
 if __name__ == "__main__":
     print("=" * 60)
     print("  PSC - Pulse Shopping Coin (Client Site)")
