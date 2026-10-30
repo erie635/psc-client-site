@@ -1267,7 +1267,13 @@
                 {% for cat in categories %}
                 <div class="cat-circle {% if active_category == cat.key %}active{% endif %}"
                      onclick="goCategory('{{ cat.key }}')">
-                    <div class="circle">{{ cat.emoji }}</div>
+                    <div class="circle" style="overflow: hidden;">
+                        {% if cat.image %}
+                            <img src="{{ cat.image }}" alt="{{ cat.label }}" style="width: 100%; height: 100%; object-fit: cover;" loading="lazy">
+                        {% else %}
+                            {{ cat.emoji }}
+                        {% endif %}
+                    </div>
                     <div class="cat-name">{{ cat.label }}</div>
                 </div>
                 {% endfor %}
@@ -3468,54 +3474,7 @@ function loadWalletChip() {
     </script>
     <!-- END_MOONPAY_FRONTEND_LOADER -->
 
-<!-- PSC Category Hero Section -->
-<style>
-.psc-hero-container { margin: 20px auto; padding: 20px; max-width: 1200px; background: #fff; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.05); }
-.psc-hero-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; border-bottom: 2px solid #f1f1f1; padding-bottom: 10px; }
-.psc-hero-header h3 { margin: 0; font-size: 1.5rem; color: #333; }
-.psc-refresh-btn { background: #6c5ce7; color: white; border: none; padding: 8px 16px; border-radius: 20px; cursor: pointer; font-weight: bold; transition: background 0.3s; }
-.psc-refresh-btn:hover { background: #5a4bcf; }
-.psc-hero-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(100px, 1fr)); gap: 15px; }
-.psc-hero-card { display: flex; flex-direction: column; align-items: center; text-decoration: none; color: #333; background: #f8f9fa; padding: 15px 10px; border-radius: 12px; transition: transform 0.2s, box-shadow 0.2s; }
-.psc-hero-card:hover { transform: translateY(-5px); box-shadow: 0 6px 12px rgba(0,0,0,0.1); }
-.psc-hero-card img { width: 70px; height: 70px; object-fit: cover; border-radius: 50%; margin-bottom: 10px; background: #e9ecef; }
-.psc-hero-card span { font-size: 0.9rem; font-weight: 600; text-align: center; }
-</style>
-<div class="psc-hero-container">
-    <div class="psc-hero-header">
-        <h3>Shop by Category</h3>
-        <button id="refresh-hero-btn" class="psc-refresh-btn">🔄 Refresh Images</button>
-    </div>
-    <div id="hero-categories-grid" class="psc-hero-grid">
-        <div style="text-align: center; width: 100%; padding: 20px;">Loading categories...</div>
-    </div>
-</div>
-<script>
-document.addEventListener("DOMContentLoaded", function() {
-    const grid = document.getElementById('hero-categories-grid');
-    const refreshBtn = document.getElementById('refresh-hero-btn');
-    function loadHeroCategories() {
-        grid.innerHTML = '<div style="text-align: center; width: 100%; padding: 20px;">Refreshing...</div>';
-        fetch('/api/hero_categories')
-            .then(res => res.json())
-            .then(data => {
-                if (data.success) {
-                    grid.innerHTML = '';
-                    data.categories.forEach(cat => {
-                        const a = document.createElement('a');
-                        a.href = '/?category=' + cat.key; 
-                        a.className = 'psc-hero-card';
-                        const imgSrc = cat.image || 'https://images.unsplash.com/photo-1511707171634-5f897ff02aa9?w=400';
-                        a.innerHTML = `<img src="${imgSrc}" alt="${cat.label}"><span>${cat.label}</span>`;
-                        grid.appendChild(a);
-                    });
-                }
-            });
-    }
-    loadHeroCategories();
-    if(refreshBtn) refreshBtn.addEventListener('click', loadHeroCategories);
-});
-</script>
+
 
 </body>
 </html>
