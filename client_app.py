@@ -1,4 +1,4 @@
-"""
+﻿"""
 PSC - Pulse Shopping Coin
 Client-facing online shop with automatic PSC wallet creation + client registry.
 + Category grouping, login/register, account persistence.
@@ -142,7 +142,7 @@ def _cache_clear():
 
 
 # ============================================================
-#  PSC — PERSISTENT DISK CACHE
+#  PSC â€” PERSISTENT DISK CACHE
 # ============================================================
 
 DISK_CACHE_FILE = os.path.join(
@@ -3155,7 +3155,7 @@ def _midnight_bonus_loop():
 
 
 # ============================================================
-# WITHDRAWALS / PAYOUTS — ADMIN MANUAL ONLY (gateways removed)
+# WITHDRAWALS / PAYOUTS â€” ADMIN MANUAL ONLY (gateways removed)
 # ============================================================
 
 PSC_ADMIN_TOKEN       = os.getenv("PSC_ADMIN_TOKEN", "")
@@ -4017,7 +4017,7 @@ def api_admin_aml_screen():
 
 
 # ============================================================
-# WALLET UPGRADE LAYER — P2P + HIGH-VALUE WITHDRAWALS
+# WALLET UPGRADE LAYER â€” P2P + HIGH-VALUE WITHDRAWALS
 # ============================================================
 
 WALLET_DEPOSIT_MAX_KES        = float(os.getenv("WALLET_DEPOSIT_MAX_KES", "0") or 0)
@@ -4134,7 +4134,7 @@ def api_wallet_transfer_lookup():
                 "name": client.get("name", ""),
                 "phone": client.get("phone", ""),
                 "wallet": recipient_wallet,
-                "wallet_short": recipient_wallet[:10] + "…" + recipient_wallet[-6:],
+                "wallet_short": recipient_wallet[:10] + "â€¦" + recipient_wallet[-6:],
             },
         })
     except Exception as e:
@@ -5034,12 +5034,12 @@ def api_wallet_ui(wallet_addr):
         "total_kes": round(_wallet_total(wallet) * PSC_TO_KES_RATE, 2),
     }
 
-    # Payment gateways removed — "deposit" action is intentionally omitted.
+    # Payment gateways removed â€” "deposit" action is intentionally omitted.
     actions = [
         {
             "key": "transfer",
             "label": "Send to another user",
-            "icon": "📤",
+            "icon": "ðŸ“¤",
             "endpoint": "/api/wallet/transfer",
             "method": "POST",
             "fields": ["recipient", "amount_psc"],
@@ -5051,7 +5051,7 @@ def api_wallet_ui(wallet_addr):
         {
             "key": "withdraw",
             "label": "Withdraw to bank / M-Pesa",
-            "icon": "📥",
+            "icon": "ðŸ“¥",
             "endpoint": "/api/wallet/withdraw/highvalue",
             "method": "POST",
             "fields": ["amount_psc", "method", "destination", "bank_code"],
@@ -5061,7 +5061,7 @@ def api_wallet_ui(wallet_addr):
         {
             "key": "save",
             "label": "Move to Savings",
-            "icon": "🔒",
+            "icon": "ðŸ”’",
             "endpoint": "/api/wallet/savings/move_in",
             "method": "POST",
             "fields": ["amount_psc"],
@@ -5073,7 +5073,7 @@ def api_wallet_ui(wallet_addr):
         {
             "key": "unsave",
             "label": "Move back from Savings",
-            "icon": "🔓",
+            "icon": "ðŸ”“",
             "endpoint": "/api/wallet/savings/move_out",
             "method": "POST",
             "fields": ["amount_psc"],
@@ -5084,7 +5084,7 @@ def api_wallet_ui(wallet_addr):
         {
             "key": "deposit_psc_in",
             "label": "Move to Deposit PSC",
-            "icon": "🧠",
+            "icon": "ðŸ§ ",
             "endpoint": "/api/wallet/deposit/move_in",
             "method": "POST",
             "fields": ["amount_psc"],
@@ -5096,7 +5096,7 @@ def api_wallet_ui(wallet_addr):
         {
             "key": "deposit_psc_out",
             "label": "Move back from Deposit PSC",
-            "icon": "🧠",
+            "icon": "ðŸ§ ",
             "endpoint": "/api/wallet/deposit/move_out",
             "method": "POST",
             "fields": ["amount_psc"],
@@ -5107,7 +5107,7 @@ def api_wallet_ui(wallet_addr):
         {
             "key": "redeem_daily_bonus",
             "label": "Redeem daily bonus",
-            "icon": "�",
+            "icon": "ðŸŽ",
             "endpoint": "/api/wallet/redeem_daily_bonus",
             "method": "POST",
             "fields": [],
