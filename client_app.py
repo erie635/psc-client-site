@@ -559,6 +559,35 @@ MIN_BALANCE_TO_SHOP = 5.0
 CACHE_TTL_SECONDS = 600
 ADMIN_PHONE = "0796208133"
 
+# KYC + PAYOUT COMPLIANCE (no gateways)
+KYC_REQUIRED             = os.getenv("KYC_REQUIRED", "1").strip() == "1"
+KYC_ALLOWED_ID_TYPES     = [x.strip().lower() for x in
+                            os.getenv("KYC_ALLOWED_ID_TYPES",
+                                      "national_id,passport,drivers_license,huduma_namba,bvn,nin").split(",")
+                            if x.strip()]
+KYC_MIN_AGE              = int(os.getenv("KYC_MIN_AGE", "18") or 18)
+
+PAYOUT_VELOCITY_MAX_PER_WEEK = int(os.getenv("PAYOUT_VELOCITY_MAX_PER_WEEK", "10") or 10)
+PAYOUT_VELOCITY_MAX_PER_DAY  = int(os.getenv("PAYOUT_VELOCITY_MAX_PER_DAY", "3") or 3)
+
+CBK_REPORT_THRESHOLD_KES = float(os.getenv("CBK_REPORT_THRESHOLD_KES", "1000000") or 1000000)
+KRA_WHT_THRESHOLD_KES    = float(os.getenv("KRA_WHT_THRESHOLD_KES", "24000") or 24000)
+
+VA_DIR = os.path.dirname(CLIENTS_FILE) or "."
+KYC_FILE             = os.path.join(VA_DIR, "kyc_records.json")
+COMPLIANCE_FILE      = os.path.join(VA_DIR, "compliance_flags.json")
+VELOCITY_FILE        = os.path.join(VA_DIR, "payout_velocity.json")
+CBK_REPORT_FILE      = os.path.join(VA_DIR, "cbk_reports.json")
+SANCTIONS_FILE       = os.path.join(VA_DIR, "sanctions_blocklist.txt")
+
+_SANCTIONS_INLINE = set(
+    x.strip().lower() for x in
+    os.getenv("SANCTIONS_BLOCKLIST", "").split(",") if x.strip()
+)
+
+_VA_LOCK = threading.Lock()
+
+
 WALLET_DIR = os.path.join(BASE_DIR, "wallets")
 ORDERS_FILE = os.path.join(BASE_DIR, "orders_from_clients.json")
 CLIENTS_FILE = os.path.join(BASE_DIR, "client_registry.json")
