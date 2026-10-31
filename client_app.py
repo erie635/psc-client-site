@@ -3381,7 +3381,8 @@ def load_products(query, allow_block=True, vendor=None):
     finally:
         _SCRAPE_LOCK.release()
 
-def load_products_multidef load_products_multi(keywords, per_query=50, allow_block=True, vendor=None):
+
+def load_products_multi(keywords, per_query=50, allow_block=True, vendor=None):
     combined = []
     seen_ids = set()
     seen_names = set()
