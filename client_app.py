@@ -2410,15 +2410,15 @@ def _scrape_samsungstore(q, headers):
 
 
 def _scrape_vendors_sequential(query, vendor=None):
-    q = str(query or "electronics").strip() or "electronics"
-    vendor = str(vendor or "").strip().lower() or None
+    q = str(query or 'electronics').strip() or 'electronics'
+    vendor = str(vendor or '').strip().lower() or None
     headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-        "Accept-Language": "en-US,en;q=0.9",
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        'Accept-Language': 'en-US,en;q=0.9',
     }
 
-    # Stop at the FIRST successful vendor
+        # Try the top 4 vendors by default. Stop at the first success.
     if vendor in (None, "jumia"):
         p = _scrape_jumia(q, headers)
         if p: return p
@@ -2432,6 +2432,7 @@ def _scrape_vendors_sequential(query, vendor=None):
         p = _scrape_jiji(q, headers)
         if p: return p
 
+    # Only check the rest if specifically searched for
     if vendor == "fahavi":
         p = _scrape_fahavi(q, headers)
         if p: return p
