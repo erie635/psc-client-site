@@ -3303,94 +3303,14 @@ def _recent_user_activity(within_seconds=15):
         return (time.time() - _LAST_USER_ACTIVITY) < within_seconds
 
 
-def _psc_filter_search_results(query, products):
-    """
-    Keep only genuine products relevant to the user's search.
-    Preserve all original product fields and images.
-    """
-    import re
-
-    query = str(query or "").strip().lower()
-
-    if not query:
-        return []
-
-    stopwords = {
-        "the", "a", "an", "and", "or", "for", "with",
-        "without", "in", "on", "at", "to", "of", "by",
-        "buy", "search", "find", "best", "new", "price",
-        "prices", "offer", "offers", "deal", "deals"
-    }
-
-    aliases = {
-        "dog": {"dog", "dogs", "puppy", "puppies", "canine"},
-        "food": {"food", "foods", "kibble", "feed"},
-        "cat": {"cat", "cats", "kitten", "kittens", "feline"},
-        "phone": {"phone", "phones", "smartphone", "smartphones", "mobile"},
-        "laptop": {"laptop", "laptops", "notebook", "notebooks"},
-        "tv": {"tv", "television", "televisions"},
-        "home": {"home", "household", "domestic", "kitchen"},
-        "appliance": {"appliance", "appliances"},
-        "shoe": {"shoe", "shoes", "footwear"},
-        "beauty": {"beauty", "cosmetic", "cosmetics"},
-        "baby": {"baby", "infant", "newborn"},
-    }
-
-    tokens = [
-        token for token in re.findall(r"[a-z0-9]+", query)
-        if token not in stopwords
-    ]
-
-    if not tokens:
-        return []
-
-    required_groups = [
-        aliases.get(token, {token})
-        for token in tokens
-    ]
-
-    matching = []
-
-    for product in products or []:
-
-        if not isinstance(product, dict):
-            continue
-
-        source = str(product.get("source") or "").strip().lower()
-
-        # Never show fabricated fallback inventory.
-        if any(marker in source for marker in (
-            "fallback", "sample"
-        )) and source != "psc premium":
-            continue
-
-        searchable = " ".join(
-            str(product.get(field) or "")
-            for field in (
-                "name",
-                "description",
-                "category",
-                "brand",
-                "manufacturer",
-                "tags"
-            )
-        ).lower()
-
-        searchable_words = set(
-            re.findall(r"[a-z0-9]+", searchable)
-        )
-
-        # Every meaningful search term must match.
-        if all(
-            bool(group.intersection(searchable_words))
-            for group in required_groups
-        ):
-            matching.append(product)
-
-    return matching
-
-
 def load_products(query, allow_block=True, vendor=None):
+    try:
+        from flask import has_request_context
+        if has_request_context():
+            _mark_user_activity()
+    except Exception:
+        pass
+
     query = str(query or "").strip()
     vendor = str(vendor or "").strip().lower() or None
 
@@ -3400,129 +3320,68 @@ def load_products(query, allow_block=True, vendor=None):
     cache_key = f"products::{vendor or 'all'}::{query.lower()}"
     query_key = f"{vendor or 'all'}::{query.lower()}"
 
-    # Existing cached products must also pass relevance checking.
+    # _PSC_SAFE_FAST_BOOT applied
+    if os.environ.get("RENDER") and _cache_get_soft(cache_key) is None and not _scrape_recently_done(query_key):
+        print(f"[PSC SAFE-FAST-BOOT] Cache empty for '{query}'. Returning fallback and backgrounding...")
+        _background_refresh_products(query, vendor=vendor, cache_key=cache_key)
+        return _fallback_products(query)
+
     cached = _cache_get(cache_key)
-
     if cached is not None:
-        cached = _psc_filter_search_results(query, cached)
+        _register_products(cached)
+        return cached
 
-        if cached:
+    stale = _cache_get_soft(cache_key)
+    if stale is not None:
+        print(f"[PSC SWR] serving stale for '{vendor or 'all'}:{query}' and refreshing in background.")
+        _register_products(stale)
+        _background_refresh_products(query, vendor=vendor, cache_key=cache_key)
+        return stale
+
+    if _scrape_recently_done(query_key):
+        print(f"[PSC SEARCH] '{vendor or 'all'}:{query}' in cooldown, returning fallback.")
+        return _fallback_products(query)
+
+    acquired = _SCRAPE_LOCK.acquire(blocking=True, timeout=60)
+    if not acquired:
+        cached = _cache_get_soft(cache_key)
+        if cached is not None:
+            _register_products(cached)
+            return cached
+        print(f"[PSC SEARCH] Lock busy for '{vendor or 'all'}:{query}'; returning fallback.")
+        return _fallback_products(query)
+
+    try:
+        cached = _cache_get(cache_key)
+        if cached is not None:
             _register_products(cached)
             return cached
 
-    # Use only relevant stale products.
-    stale = _cache_get_soft(cache_key)
-
-    if stale is not None:
-        stale = _psc_filter_search_results(query, stale)
-
-        if stale:
-            print(
-                f"[PSC SEARCH] Serving {len(stale)} relevant cached "
-                f"products for '{query}'."
-            )
-
-            _register_products(stale)
-
-            _background_refresh_products(
-                query,
-                vendor=vendor,
-                cache_key=cache_key
-            )
-
-            return stale
-
-    # Do not invent products during cooldown.
-    if _scrape_recently_done(query_key):
-        print(
-            f"[PSC SEARCH] No cached matching products for "
-            f"'{query}' during cooldown."
-        )
-        return []
-
-    acquired = _SCRAPE_LOCK.acquire(
-        blocking=True,
-        timeout=20
-    )
-
-    if not acquired:
-
-        stale = _cache_get_soft(cache_key)
-
-        if stale is not None:
-            stale = _psc_filter_search_results(query, stale)
-
-            if stale:
-                _register_products(stale)
-                return stale
-
-        print(
-            f"[PSC SEARCH] Search lock busy; no results for '{query}'."
-        )
-
-        return []
-
-    try:
-
-        cached = _cache_get(cache_key)
-
-        if cached is not None:
-            cached = _psc_filter_search_results(query, cached)
-
-            if cached:
-                _register_products(cached)
-                return cached
-
         if _scrape_recently_done(query_key):
-            return []
+            print(f"[PSC SEARCH] '{vendor or 'all'}:{query}' in cooldown after wait, returning fallback.")
+            return _fallback_products(query)
 
-        # Existing real vendor scraping remains unchanged.
-        all_products = _load_products_live(
-            query,
-            vendor=vendor
-        )
-
-        # Reject irrelevant products returned by vendor searches.
-        all_products = _psc_filter_search_results(
-            query,
-            all_products
-        )
+        all_products = _load_products_live(query, vendor=vendor)
 
         _mark_scrape_done(query_key)
 
-        if not all_products:
-            print(
-                f"[PSC SEARCH] No matching real products found for "
-                f"'{vendor or 'all'}:{query}'."
-            )
+        if all_products:
+            _register_products(all_products)
+            _cache_set(cache_key, all_products)
+            meta = _DISK_CACHE_META.setdefault(cache_key, {})
+            meta["refresh_count"] = int(meta.get("refresh_count", 0)) + 1
+            meta["saved_at"] = time.time()
+            _cache_save_async()
+            print(f"[PSC SEARCH] '{vendor or 'all'}:{query}' returned {len(all_products)} real products.")
+            return all_products
 
-            # Do not cache invented or unrelated products.
-            return []
-
-        _register_products(all_products)
-
-        _cache_set(cache_key, all_products)
-
-        meta = _DISK_CACHE_META.setdefault(cache_key, {})
-        meta["refresh_count"] = int(
-            meta.get("refresh_count", 0)
-        ) + 1
-        meta["saved_at"] = time.time()
-
-        _cache_save_async()
-
-        print(
-            f"[PSC SEARCH] '{query}' returned "
-            f"{len(all_products)} relevant products."
-        )
-
-        return all_products
+        print(f"[PSC SEARCH] No real products found for '{vendor or 'all'}:{query}'.")
+        return _fallback_products(query)
 
     finally:
         _SCRAPE_LOCK.release()
 
-
-def load_products_multi(keywords, per_query=50, allow_block=True, vendor=None):
+def load_products_multidef load_products_multi(keywords, per_query=50, allow_block=True, vendor=None):
     combined = []
     seen_ids = set()
     seen_names = set()
