@@ -3324,7 +3324,7 @@ def load_products(query, allow_block=True, vendor=None):
     if os.environ.get("RENDER") and _cache_get_soft(cache_key) is None and not _scrape_recently_done(query_key):
         print(f"[PSC SAFE-FAST-BOOT] Cache empty for '{query}'. Returning fallback and backgrounding...")
         _background_refresh_products(query, vendor=vendor, cache_key=cache_key)
-        return _fallback_products(query)
+        return []
 
     cached = _cache_get(cache_key)
     if cached is not None:
@@ -3376,7 +3376,7 @@ def load_products(query, allow_block=True, vendor=None):
             return all_products
 
         print(f"[PSC SEARCH] No real products found for '{vendor or 'all'}:{query}'.")
-        return _fallback_products(query)
+        return []
 
     finally:
         _SCRAPE_LOCK.release()
