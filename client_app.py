@@ -1535,7 +1535,7 @@ for _cat in CATEGORY_GROUPS:
 # ---------- PRODUCT SOURCES ----------
 
 _JUMIA_REQUESTS_BLOCKED_UNTIL = 0.0
-_JUMIA_REQUESTS_BLOCK_SECONDS = 1800
+_JUMIA_REQUESTS_BLOCK_SECONDS = 0  # Always try immediately
 
 
 def _scrape_jumia(q, headers):
@@ -1546,7 +1546,7 @@ def _scrape_jumia(q, headers):
     url = (f"https://www.jumia.co.ke{q}" if q.startswith("/")
            else f"https://www.jumia.co.ke/catalog/?q={quote_plus(q)}")
 
-    if time.time() >= _JUMIA_REQUESTS_BLOCKED_UNTIL:
+    if True:  # Always attempt the fast requests method first
         try:
             proxy_dict = _requests_proxy_config()
             resp = _req.get(url, headers=headers, timeout=15, proxies=proxy_dict)
@@ -1628,10 +1628,10 @@ def _scrape_jumia(q, headers):
                 Object.defineProperty(navigator, 'plugins', { get: () => [1, 2, 3, 4, 5] });
                 window.chrome = { runtime: {} };
             ''')
-            try: page.goto(url, wait_until="domcontentloaded", timeout=30000)
+            try: page.goto(url, wait_until="domcontentloaded", timeout=60000)
             except Exception: pass
-            page.wait_for_timeout(3000)
-            try: page.wait_for_selector("article.prd, article.-pvxs, article[data-catalog-product]", timeout=12000)
+            page.wait_for_timeout(5000)
+            try: page.wait_for_selector("article.prd, article.-pvxs, article[data-catalog-product]", timeout=25000)
             except Exception: pass
             cards = page.query_selector_all("article.prd")
             if not cards: cards = page.query_selector_all("article.-pvxs")
@@ -1696,9 +1696,9 @@ def _scrape_kilimall(q, headers):
             )
             page = browser.new_page(user_agent=headers["User-Agent"])
             page.goto(f"https://www.kilimall.co.ke/search?q={quote_plus(q)}",
-                      wait_until="networkidle", timeout=30000)
+                      wait_until="networkidle", timeout=60000)
             try:
-                page.wait_for_selector("div.product-item img[src]", timeout=30000)
+                page.wait_for_selector("div.product-item img[src]", timeout=60000)
             except Exception:
                 pass
             cards = page.query_selector_all("div.product-item")[:20]
@@ -1778,7 +1778,7 @@ def _scrape_carrefour(q):
             try:
                 page.goto(
                     f"https://www.carrefour.ke/mafken/en/search?keyword={quote_plus(q)}",
-                    wait_until="domcontentloaded", timeout=30000,
+                    wait_until="domcontentloaded", timeout=60000,
                 )
             except Exception:
                 pass
@@ -1798,7 +1798,7 @@ def _scrape_carrefour(q):
             try:
                 page.wait_for_selector(
                     "a[href*='/p/'], a[href*='/product'], article.product",
-                    timeout=12000)
+                    timeout=25000)
             except Exception:
                 pass
             cards = page.query_selector_all("a[href*='/p/']")
@@ -1896,7 +1896,7 @@ def _scrape_jiji(q, headers):
             )
             try:
                 page.goto(f"https://jiji.co.ke/search?query={quote_plus(q)}",
-                          wait_until="domcontentloaded", timeout=30000)
+                          wait_until="domcontentloaded", timeout=60000)
             except Exception:
                 pass
             page.wait_for_timeout(4000)
@@ -2008,7 +2008,7 @@ def _scrape_woocommerce(q, url_template, source_label, category, headers):
             ''')
             url = url_template.format(q=quote_plus(q))
             try:
-                page.goto(url, wait_until="domcontentloaded", timeout=30000)
+                page.goto(url, wait_until="domcontentloaded", timeout=60000)
             except Exception:
                 pass
             page.wait_for_timeout(2500)
@@ -2114,15 +2114,15 @@ def _scrape_magento(q, url_template, source_label, category, headers):
             ''')
             url = url_template.format(q=quote_plus(q))
             try:
-                page.goto(url, wait_until="domcontentloaded", timeout=30000)
+                page.goto(url, wait_until="domcontentloaded", timeout=60000)
             except Exception:
                 pass
-            page.wait_for_timeout(3000)
+            page.wait_for_timeout(5000)
             try:
                 page.wait_for_selector(
                     "li.product-item, .product-item-info, ol.products li, "
                     ".product-item, article.product, .product-card",
-                    timeout=12000)
+                    timeout=25000)
             except Exception:
                 pass
             cards = page.query_selector_all("li.product-item")
@@ -2229,7 +2229,7 @@ def _scrape_generic_react(q, url_template, source_label, category, headers):
             ''')
             url = url_template.format(q=quote_plus(q))
             try:
-                page.goto(url, wait_until="domcontentloaded", timeout=30000)
+                page.goto(url, wait_until="domcontentloaded", timeout=60000)
             except Exception:
                 pass
             page.wait_for_timeout(4500)
