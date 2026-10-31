@@ -806,16 +806,25 @@ def _register_products(products):
     for product in products:
         if not product:
             continue
-        # Fix null or empty images
-        if not product.get("image") or str(product.get("image")).strip().lower() in ("null", "none", ""):
+        img_val = product.get("image")
+        if not img_val or str(img_val).strip().lower() in ("null", "none", ""):
             cat_name = str(product.get("category", "")).lower()
-            if "phone" in cat_name: product["image"] = "https://images.unsplash.com/photo-1511707171634-5f897ff02aa9?w=400"
-            elif "tv" in cat_name: product["image"] = "https://images.unsplash.com/photo-1593359677879-a4bb92f829d1?w=400"
-            elif "laptop" in cat_name or "comput" in cat_name: product["image"] = "https://images.unsplash.com/photo-1496181133206-80ce9b88a853?w=400"
-            elif "fridge" in cat_name or "home" in cat_name: product["image"] = "https://images.unsplash.com/photo-1584622650111-993a426fbf0a?w=400"
-            elif "beauty" in cat_name or "health" in cat_name: product["image"] = "https://images.unsplash.com/photo-1556228578-0d85b1a4d571?w=400"
-            elif "shoe" in cat_name or "fashion" in cat_name: product["image"] = "https://images.unsplash.com/photo-1542291026-7eec264c27ff?w=400"
-            else: product["image"] = "https://images.unsplash.com/photo-1505740420928-5e560c06d30e?w=400"
+            name_val = str(product.get("name", "")).lower()
+            if any(k in cat_name or k in name_val for k in ["phone", "tablet", "ipad", "iphone", "samsung"]):
+                product["image"] = "https://images.unsplash.com/photo-1511707171634-5f897ff02aa9?w=400"
+            elif any(k in cat_name or k in name_val for k in ["tv", "audio", "speaker"]):
+                product["image"] = "https://images.unsplash.com/photo-1593359677879-a4bb92f829d1?w=400"
+            elif any(k in cat_name or k in name_val for k in ["laptop", "comput", "macbook", "tool"]):
+                product["image"] = "https://images.unsplash.com/photo-1496181133206-80ce9b88a853?w=400"
+            elif any(k in cat_name or k in name_val for k in ["home", "kitchen", "fridge"]):
+                product["image"] = "https://images.unsplash.com/photo-1584622650111-993a426fbf0a?w=400"
+            elif any(k in cat_name or k in name_val for k in ["beauty", "health", "cream"]):
+                product["image"] = "https://images.unsplash.com/photo-1556228578-0d85b1a4d571?w=400"
+            elif any(k in cat_name or k in name_val for k in ["shoe", "fashion", "clothes"]):
+                product["image"] = "https://images.unsplash.com/photo-1542291026-7eec264c27ff?w=400"
+            else:
+                product["image"] = "https://images.unsplash.com/photo-1505740420928-5e560c06d30e?w=400"
+
         product["id"] = _stable_product_id(
             product.get("name", ""),
             product.get("source", ""),
@@ -833,7 +842,6 @@ def _register_products(products):
             product["vendor_url"] = _vendor_url(vkey, product.get("name", ""))
         _PRODUCT_CACHE[product["id"]] = product
     return products
-
 
 def _admin_merge_wallet(address, name="", phone="", email="",
                        mpesa_number="", purchased_psc=None, bonus_psc=None,
@@ -2949,7 +2957,6 @@ def _fallback_products(category_label="Sample"):
         base_image = _images["grocery"]; category = "Groceries"
 
     products = []
-    # Using cleaner titles instead of "Premium Edition 16"
     for i in range(20):
         products.append({
             "id": 900000 + i,
@@ -2969,9 +2976,6 @@ def _fallback_products(category_label="Sample"):
             product["name"], product["source"], product["category"], product["kes_price"]
         )
     return products
-
-
-
 
 _INFLIGHT = {}
 
@@ -3332,11 +3336,10 @@ def load_products(query, allow_block=True, vendor=None):
     cache_key = f"products::{vendor or 'all'}::{query.lower()}"
     query_key = f"{vendor or 'all'}::{query.lower()}"
 
-    # _PSC_SAFE_FAST_BOOT applied
     if os.environ.get("RENDER") and _cache_get_soft(cache_key) is None and not _scrape_recently_done(query_key):
         print(f"[PSC SAFE-FAST-BOOT] Cache empty for '{query}'. Returning fallback and backgrounding...")
         _background_refresh_products(query, vendor=vendor, cache_key=cache_key)
-        return []
+        return _fallback_products(query)
 
     cached = _cache_get(cache_key)
     if cached is not None:
@@ -3374,7 +3377,6 @@ def load_products(query, allow_block=True, vendor=None):
             return _fallback_products(query)
 
         all_products = _load_products_live(query, vendor=vendor)
-
         _mark_scrape_done(query_key)
 
         if all_products:
@@ -3388,11 +3390,10 @@ def load_products(query, allow_block=True, vendor=None):
             return all_products
 
         print(f"[PSC SEARCH] No real products found for '{vendor or 'all'}:{query}'.")
-        return []
+        return _fallback_products(query)
 
     finally:
         _SCRAPE_LOCK.release()
-
 
 def load_products_multi(keywords, per_query=50, allow_block=True, vendor=None):
     combined = []
