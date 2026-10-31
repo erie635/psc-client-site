@@ -559,6 +559,19 @@ MIN_BALANCE_TO_SHOP = 5.0
 CACHE_TTL_SECONDS = 600
 ADMIN_PHONE = "0796208133"
 
+
+
+WALLET_DIR = os.path.join(BASE_DIR, "wallets")
+ORDERS_FILE = os.path.join(BASE_DIR, "orders_from_clients.json")
+CLIENTS_FILE = os.path.join(BASE_DIR, "client_registry.json")
+
+ADMIN_CLIENT_WALLETS_FILE = os.path.join(BASE_DIR, "client_wallets.json")
+ADMIN_LEDGER_FILE = os.path.join(BASE_DIR, "client_wallet_ledger.json")
+
+PAYMENTS_FILE         = os.path.join(BASE_DIR, "payments.json")
+WITHDRAWAL_QUEUE_FILE = os.path.join(BASE_DIR, "withdrawal_queue.json")
+PAYOUT_AUDIT_FILE     = os.path.join(BASE_DIR, "payout_audit.json")
+
 # KYC + PAYOUT COMPLIANCE (no gateways)
 KYC_REQUIRED             = os.getenv("KYC_REQUIRED", "1").strip() == "1"
 KYC_ALLOWED_ID_TYPES     = [x.strip().lower() for x in
@@ -587,17 +600,6 @@ _SANCTIONS_INLINE = set(
 
 _VA_LOCK = threading.Lock()
 
-
-WALLET_DIR = os.path.join(BASE_DIR, "wallets")
-ORDERS_FILE = os.path.join(BASE_DIR, "orders_from_clients.json")
-CLIENTS_FILE = os.path.join(BASE_DIR, "client_registry.json")
-
-ADMIN_CLIENT_WALLETS_FILE = os.path.join(BASE_DIR, "client_wallets.json")
-ADMIN_LEDGER_FILE = os.path.join(BASE_DIR, "client_wallet_ledger.json")
-
-PAYMENTS_FILE         = os.path.join(BASE_DIR, "payments.json")
-WITHDRAWAL_QUEUE_FILE = os.path.join(BASE_DIR, "withdrawal_queue.json")
-PAYOUT_AUDIT_FILE     = os.path.join(BASE_DIR, "payout_audit.json")
 
 MARKUP_DEFAULT = 0.05
 
