@@ -2935,17 +2935,21 @@ def _fallback_products(category_label="Sample"):
         "beauty": "https://images.unsplash.com/photo-1556228578-0d85b1a4d571?w=400",
         "shoe": "https://images.unsplash.com/photo-1542291026-7eec264c27ff?w=400",
         "grocery": "https://images.unsplash.com/photo-1542838132-92c53300491e?w=400",
+        "tools": "https://images.unsplash.com/photo-1504148455328-c37699d78e1b?w=400",
         "default": "https://images.unsplash.com/photo-1505740420928-5e560c06d30e?w=400"
     }
 
     base_image = _images["default"]
     category = "General"
 
-    if any(k in q_lower for k in ["phone", "tablet", "ipad", "iphone", "samsung", "tecno"]):
+    # Added 'tools' as its own category so it doesn't use laptop images
+    if any(k in q_lower for k in ["tool", "drill", "hammer", "wrench", "screwdriver", "hardware"]):
+        base_image = _images["tools"]; category = "Tools & Hardware"
+    elif any(k in q_lower for k in ["phone", "tablet", "ipad", "iphone", "samsung", "tecno"]):
         base_image = _images["phone"]; category = "Phones & Tablets"
     elif any(k in q_lower for k in ["tv", "audio", "speaker", "headphone"]):
         base_image = _images["tv"]; category = "TVs & Audio"
-    elif any(k in q_lower for k in ["laptop", "comput", "macbook", "tool"]):
+    elif any(k in q_lower for k in ["laptop", "comput", "macbook"]):
         base_image = _images["laptop"]; category = "Computing"
     elif any(k in q_lower for k in ["home", "kitchen", "appliance", "fridge", "cooker", "microwave"]):
         base_image = _images["fridge"]; category = "Appliances"
@@ -2958,9 +2962,10 @@ def _fallback_products(category_label="Sample"):
 
     products = []
     for i in range(20):
+        # Cleaner naming instead of "Store Pick 14"
         products.append({
             "id": 900000 + i,
-            "name": f"{_q_title} - Store Pick {i+1}" if _q_title else f"Top Pick {i+1}",
+            "name": f"{_q_title} - Model {i+1}" if _q_title else f"Top Pick {i+1}",
             "price": 100.0 + (i * 10),
             "kes_price": 10000.0 + (i * 1000),
             "client_kes": 10500.0 + (i * 1050),
