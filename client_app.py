@@ -2418,7 +2418,7 @@ def _scrape_vendors_sequential(query, vendor=None):
         "Accept-Language": "en-US,en;q=0.9",
     }
 
-    # Try the top 3 electronics vendors first, and STOP if one succeeds
+    # Stop at the FIRST successful vendor
     if vendor in (None, "jumia"):
         p = _scrape_jumia(q, headers)
         if p: return p
@@ -2432,7 +2432,6 @@ def _scrape_vendors_sequential(query, vendor=None):
         p = _scrape_jiji(q, headers)
         if p: return p
 
-    # Only check these other vendors if you specifically search for them
     if vendor == "fahavi":
         p = _scrape_fahavi(q, headers)
         if p: return p
@@ -2462,8 +2461,7 @@ def _scrape_vendors_sequential(query, vendor=None):
         with open("products.json", "r") as f:
             _fb = json.load(f)
         _fbp = (_fb or {}).get("products", []) or []
-        if _fbp:
-            return _fbp
+        if _fbp: return _fbp
     except Exception:
         pass
     return []
