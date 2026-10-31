@@ -5543,8 +5543,16 @@ def api_category_images():
 
         for cat in CATEGORY_GROUPS:
             key = cat["key"]
-
-            # Cache bypassed to allow live 15s updates
+            
+            # Force the curated image immediately for reliable UI
+            fallback_img = FALLBACK_CATEGORY_IMAGES.get(key, "")
+            if fallback_img:
+                result[key] = {
+                    "image": fallback_img,
+                    "name": cat["label"],
+                    "emoji": cat.get("emoji", ""),
+                }
+                continue
 
             products = _cache_get(f"products::all::{cat['query'].lower()}") or []
             if not products:
