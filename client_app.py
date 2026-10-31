@@ -2999,12 +2999,246 @@ def _background_refresh_products(query, vendor=None, cache_key=None):
     threading.Thread(target=_worker, daemon=True).start()
 
 
+
+# === PSC PATCH: GOOGLE SHOPPING VENDOR-FILTERED AUGMENT ===
+# When a user searches a keyword, we ALSO query Google Shopping and
+# keep ONLY products whose seller/merchant matches one of the approved
+# vendors already configured in this app. This gives a broad, live
+# catalogue pulled straight from what our vendors have listed on Google
+# without ever trusting an unknown seller.
+# Set env PSC_GSHOP_ENABLED=0 to turn this off at runtime.
+
+_PSC_GSHOP_ENABLED = os.getenv("PSC_GSHOP_ENABLED", "1").strip() == "1"
+
+_VENDOR_GOOGLE_MATCH = {
+    "jumia":          ["jumia"],
+    "kilimall":       ["kilimall"],
+    "carrefour":      ["carrefour", "maf carrefour"],
+    "jiji":           ["jiji"],
+    "fahavi":         ["fahavi", "fahavi computers"],
+    "textbookcentre": ["text book centre", "textbookcentre"],
+    "naivas":         ["naivas", "naivas supermarket"],
+    "vivo":           ["vivo kenya", "vivo official store"],
+    "copell":         ["copell"],
+    "masoko":         ["masoko", "safaricom masoko"],
+    "hotpoint":       ["hotpoint", "hotpoint appliances"],
+    "samsungstore":   ["samsung brand store", "samsung experience store"],
+}
+
+_VENDOR_DOMAINS = {
+    "jumia":          "jumia.co.ke",
+    "kilimall":       "kilimall.co.ke",
+    "carrefour":      "carrefour.ke",
+    "jiji":           "jiji.co.ke",
+    "fahavi":         "fahavicomputers.co.ke",
+    "textbookcentre": "textbookcentre.com",
+    "naivas":         "naivas.co.ke",
+    "vivo":           "vivo.co.ke",
+    "copell":         "copell.co.ke",
+    "masoko":         "masoko.co.ke",
+    "hotpoint":       "hotpoint.co.ke",
+    "samsungstore":   "samsungbrandstore.co.ke",
+}
+
+
+def _gshop_match_vendor(card, card_text, page):
+    # 1) Domain match in any anchor inside the card (strongest signal)
+    try:
+        for a in card.query_selector_all("a[href]"):
+            href = (a.get_attribute("href") or "").lower()
+            if not href: continue
+            for vk, dom in _VENDOR_DOMAINS.items():
+                if dom in href:
+                    return vk
+    except Exception:
+        pass
+    # 2) Known seller / merchant DOM selectors
+    seller_txt = ""
+    for sel in (".aULzUe", ".IuHnof", "[class*='merchant']",
+                "[class*='seller']", "[aria-label*='seller']",
+                "[aria-label*='store']", "[aria-label*='shop']"):
+        try:
+            el = card.query_selector(sel)
+            if el: seller_txt += " " + (el.inner_text() or "")
+        except Exception:
+            continue
+    hay = (seller_txt + " " + (card_text or "")).lower()
+    # 3) Alias match on combined seller text + full card text
+    for vk, aliases in _VENDOR_GOOGLE_MATCH.items():
+        for alias in aliases:
+            if alias in hay:
+                return vk
+    return None
+
+
+def _gshop_human_scroll_and_clicks(page):
+    import random as _rnd
+    try:
+        page.mouse.move(_rnd.randint(80, 480), _rnd.randint(80, 480))
+        page.wait_for_timeout(_rnd.randint(250, 600))
+        page.evaluate("window.scrollTo(0, document.body.scrollHeight / 3)")
+        page.wait_for_timeout(_rnd.randint(900, 1500))
+        page.evaluate("window.scrollTo(0, document.body.scrollHeight / 1.6)")
+        page.wait_for_timeout(_rnd.randint(900, 1500))
+    except Exception:
+        pass
+    # Try to activate "Seller"/"Shops" filter to reveal merchants cleanly
+    for sel in ("div[role='button']:has-text('Seller')",
+                "div[role='button']:has-text('Shops')",
+                "button:has-text('Seller')",
+                "button:has-text('Shops')"):
+        try:
+            btn = page.query_selector(sel)
+            if btn and btn.is_visible():
+                try:
+                    btn.hover(); page.wait_for_timeout(400)
+                except Exception: pass
+                try:
+                    btn.click(timeout=2000)
+                    page.wait_for_timeout(1200)
+                except Exception: pass
+                break
+        except Exception:
+            continue
+
+
+def _scrape_google_shopping_vendor_filtered(q, headers):
+    """Google Shopping scrape, but ONLY keeps products whose seller
+    matches one of our approved vendors. Uses human-like mouse + scroll
+    + clicks so Google renders merchant info cleanly."""
+    try:
+        from playwright.sync_api import sync_playwright
+        import random as _rnd
+        products = []
+        seen_names = set()
+
+        with sync_playwright() as p:
+            browser = _launch_browser(p)
+            try:
+                context = browser.new_context(
+                    user_agent=headers.get("User-Agent") or _random_ua(),
+                    viewport={"width": 1440, "height": 1000},
+                    locale="en-KE", timezone_id="Africa/Nairobi",
+                    extra_http_headers={
+                        "Accept-Language": "en-KE,en-US;q=0.9,en;q=0.8",
+                    },
+                )
+                page = context.new_page()
+                try: page.add_init_script(_STEALTH_INIT_JS)
+                except Exception: pass
+
+                url = ("https://www.google.com/search?tbm=shop&hl=en&gl=ke&q="
+                       + quote_plus(str(q)))
+                try:
+                    page.goto(url, wait_until="domcontentloaded", timeout=60000)
+                except Exception:
+                    pass
+                page.wait_for_timeout(_rnd.randint(2200, 4200))
+
+                try: body_txt = (page.content() or "").lower()
+                except Exception: body_txt = ""
+                if ("unusual traffic" in body_txt
+                        or "not a robot" in body_txt
+                        or "captcha" in body_txt):
+                    print("[PSC GSHOP] Google CAPTCHA/soft-block - skipping '"
+                          + str(q) + "'.")
+                    return []
+
+                _gshop_human_scroll_and_clicks(page)
+
+                try:
+                    page.wait_for_selector(
+                        ".sh-dgr__content, .sh-dgr__grid-result, [data-docid]",
+                        timeout=15000)
+                except Exception:
+                    pass
+
+                cards = (page.query_selector_all(".sh-dgr__content")
+                         or page.query_selector_all(".sh-dgr__grid-result")
+                         or page.query_selector_all("[data-docid]"))
+                print("[PSC GSHOP] matched " + str(len(cards))
+                      + " Google Shopping cards for '" + str(q) + "'")
+
+                for i, card in enumerate(cards[:40], start=1):
+                    try:
+                        name_el = (card.query_selector("h3")
+                                   or card.query_selector("[role='heading']")
+                                   or card.query_selector(".tAxDx"))
+                        name = name_el.inner_text().strip() if name_el else ""
+                        if not name or name.lower() in seen_names:
+                            continue
+
+                        price_el = (card.query_selector("span.a8Pemb")
+                                    or card.query_selector("[aria-label*='KSh']")
+                                    or card.query_selector("[class*='price']"))
+                        price_text = (price_el.inner_text().strip()
+                                      if price_el else "")
+                        cleaned = (price_text.replace("KSh","")
+                                   .replace("KES","").replace("Ksh","")
+                                   .replace("kes","").replace(",","")
+                                   .strip())
+                        token = ""
+                        for ch in cleaned:
+                            if ch.isdigit() or ch == ".": token += ch
+                            elif token: break
+                        try: kes_price = float(token)
+                        except ValueError: continue
+                        if kes_price < 1: continue
+
+                        img_el = card.query_selector("img")
+                        img_url = ""
+                        if img_el:
+                            img_url = (img_el.get_attribute("src")
+                                       or img_el.get_attribute("data-src") or "")
+                            if img_url.startswith("//"):
+                                img_url = "https:" + img_url
+
+                        try: card_text = (card.inner_text() or "").lower()
+                        except Exception: card_text = ""
+
+                        matched_vendor = _gshop_match_vendor(card, card_text, page)
+                        if not matched_vendor:
+                            continue
+
+                        seen_names.add(name.lower())
+                        category = "Google Shopping"
+                        am = markup_for(name, category)
+                        products.append({
+                            "id": i, "name": name,
+                            "price": round((kes_price / PSC_TO_KES_RATE) * (1 + am), 2),
+                            "kes_price": kes_price,
+                            "client_kes": round(kes_price * (1 + am), 2),
+                            "category": category,
+                            "description": name[:60],
+                            "image": img_url, "markup": am,
+                            "source": "Google Shopping",
+                            "vendor": matched_vendor,
+                        })
+                    except Exception:
+                        continue
+            finally:
+                try: browser.close()
+                except Exception: pass
+
+        if products:
+            print("[PSC GSHOP] returned " + str(len(products))
+                  + " vendor-matched products for '" + str(q) + "'")
+            return products
+        print("[PSC GSHOP] produced 0 vendor-matched products for '"
+              + str(q) + "'")
+    except Exception as e:
+        print("[PSC GSHOP] error: " + str(e))
+    return []
+# === END PSC PATCH: GOOGLE SHOPPING VENDOR-FILTERED AUGMENT ===
+
+
 def _load_products_live(query, vendor=None):
     query = str(query or "").strip()
     if not query:
         return []
 
     all_products = _scrape_vendors_sequential(query, vendor=vendor)
+
     _seller_items = _seller_items_for_query(query)
     if _seller_items:
         _converted = []
@@ -3014,6 +3248,37 @@ def _load_products_live(query, vendor=None):
                 _converted.append(_p)
         if _converted:
             all_products = _converted + (all_products or [])
+
+    # === PSC PATCH: GOOGLE SHOPPING VENDOR-FILTERED AUGMENT ===
+    try:
+        if not vendor and _PSC_GSHOP_ENABLED:
+            _hdr = {
+                "User-Agent": ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                               "AppleWebKit/537.36 (KHTML, like Gecko) "
+                               "Chrome/140.0.0.0 Safari/537.36"),
+                "Accept": ("text/html,application/xhtml+xml,"
+                           "application/xml;q=0.9,*/*;q=0.8"),
+                "Accept-Language": "en-US,en;q=0.9",
+            }
+            _gshop = _scrape_google_shopping_vendor_filtered(query, _hdr)
+            if _gshop:
+                _seen = set()
+                for _p in (all_products or []):
+                    _n = (_p.get("name") or "").strip().lower()[:60]
+                    if _n: _seen.add(_n)
+                _added = 0
+                for _gp in _gshop:
+                    _n = (_gp.get("name") or "").strip().lower()[:60]
+                    if _n and _n not in _seen:
+                        all_products.append(_gp)
+                        _seen.add(_n); _added += 1
+                print("[PSC GSHOP] merged " + str(_added)
+                      + " Google-Shopping vendor results for '"
+                      + str(query) + "'")
+    except Exception as _gse:
+        print("[PSC GSHOP] augment failed: " + str(_gse))
+    # === END PSC PATCH ===
+
     if not all_products:
         return []
 
