@@ -1116,6 +1116,7 @@
     .product h3 {
         font-size: 0.8rem;
         -webkit-line-clamp: 2;
+        line-clamp: 2;
     }
     .product .price {
         font-size: 1.1rem;
@@ -1179,6 +1180,64 @@
 /* ============================================================ */
 
     </style>
+
+<!-- ULTRA STRICT MOBILE HERO HEIGHT FIX -->
+<style>
+@media (max-width: 768px) {
+    .hero-wrap {
+        height: 170px !important; /* Force exact height */
+        min-height: 170px !important; /* Override the 360px rule */
+        max-height: 170px !important;
+        margin-bottom: 15px !important;
+    }
+    .hero-track, .hero-slide {
+        height: 100% !important;
+    }
+    .hero-slide {
+        padding: 10px 15px !important; /* Reduce padding inside the box */
+        align-items: center !important; /* Center items vertically in the 170px */
+    }
+    .hero-slide .hero-text {
+        max-width: 65% !important;
+    }
+    .hero-slide .hero-img-box {
+        height: 100% !important;
+        max-height: 140px !important; /* Keep image contained */
+        width: auto !important;
+        min-width: unset !important;
+    }
+    .hero-slide .hero-img-box img {
+        height: 100% !important;
+        width: auto !important;
+        object-fit: contain !important;
+    }
+    .hero-slide .hero-title {
+        font-size: 0.9rem !important;
+        margin-bottom: 4px !important;
+        -webkit-line-clamp: 2 !important;
+    }
+    .hero-slide .hero-price {
+        font-size: 1rem !important;
+        margin-bottom: 2px !important;
+    }
+    .hero-slide .hero-kes {
+        font-size: 0.65rem !important;
+        margin-bottom: 5px !important;
+    }
+    .hero-slide .hero-cta {
+        padding: 6px 12px !important;
+        font-size: 0.75rem !important;
+    }
+    .hero-arrow {
+        display: none !important;
+    }
+    .hero-dots {
+        bottom: 5px !important;
+    }
+}
+</style>
+<!-- END ULTRA STRICT MOBILE HERO HEIGHT FIX -->
+
 </head>
 <body>
 
@@ -3594,6 +3653,7 @@ function loadWalletChip() {
         font-size: 1rem;
         line-height: 1.3;
         margin-bottom: 5px;
+        line-clamp: 2;
         -webkit-line-clamp: 2;
         display: -webkit-box;
         -webkit-box-orient: vertical;
