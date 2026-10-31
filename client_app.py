@@ -3046,6 +3046,7 @@ _VENDOR_GOOGLE_MATCH = {
     "masoko":         ["masoko", "safaricom masoko"],
     "hotpoint":       ["hotpoint", "hotpoint appliances"],
     "samsungstore":   ["samsung brand store", "samsung experience store"],
+    "totaltools":     ["total tools", "total tools kenya"],
 }
 
 _VENDOR_DOMAINS = {
@@ -3061,6 +3062,7 @@ _VENDOR_DOMAINS = {
     "masoko":         "masoko.co.ke",
     "hotpoint":       "hotpoint.co.ke",
     "samsungstore":   "samsungbrandstore.co.ke",
+    "totaltools":     "tappi.ke",
 }
 
 
