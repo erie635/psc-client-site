@@ -2930,6 +2930,7 @@ def _fallback_products(category_label="Sample"):
     _images = {
         "phone": "https://images.unsplash.com/photo-1610945265064-0e34e5519bbf?w=400",
         "tv": "https://images.unsplash.com/photo-1593359677879-a4bb92f829d1?w=400",
+        "audio": "https://images.unsplash.com/photo-1545128485-c400e7702796?w=400",
         "laptop": "https://images.unsplash.com/photo-1496181133206-80ce9b88a853?w=400",
         "fridge": "https://images.unsplash.com/photo-1584622650111-993a426fbf0a?w=400",
         "beauty": "https://images.unsplash.com/photo-1556228578-0d85b1a4d571?w=400",
@@ -2942,12 +2943,13 @@ def _fallback_products(category_label="Sample"):
     base_image = _images["default"]
     category = "General"
 
-    # Added 'tools' as its own category so it doesn't use laptop images
     if any(k in q_lower for k in ["tool", "drill", "hammer", "wrench", "screwdriver", "hardware"]):
         base_image = _images["tools"]; category = "Tools & Hardware"
     elif any(k in q_lower for k in ["phone", "tablet", "ipad", "iphone", "samsung", "tecno"]):
         base_image = _images["phone"]; category = "Phones & Tablets"
-    elif any(k in q_lower for k in ["tv", "audio", "speaker", "headphone"]):
+    elif any(k in q_lower for k in ["audio", "amplifier", "speaker", "sound", "crest"]):
+        base_image = _images["audio"]; category = "Audio & Amplifiers"
+    elif any(k in q_lower for k in ["tv", "television", "screen"]):
         base_image = _images["tv"]; category = "TVs & Audio"
     elif any(k in q_lower for k in ["laptop", "comput", "macbook"]):
         base_image = _images["laptop"]; category = "Computing"
@@ -2962,7 +2964,6 @@ def _fallback_products(category_label="Sample"):
 
     products = []
     for i in range(20):
-        # Cleaner naming instead of "Store Pick 14"
         products.append({
             "id": 900000 + i,
             "name": f"{_q_title} - Model {i+1}" if _q_title else f"Top Pick {i+1}",
@@ -3364,7 +3365,7 @@ def load_products(query, allow_block=True, vendor=None):
         print(f"[PSC SEARCH] '{vendor or 'all'}:{query}' in cooldown, returning fallback.")
         return _fallback_products(query)
 
-    acquired = _SCRAPE_LOCK.acquire(blocking=True, timeout=60)
+    acquired = _SCRAPE_LOCK.acquire(blocking=True, timeout=3)
     if not acquired:
         cached = _cache_get_soft(cache_key)
         if cached is not None:
