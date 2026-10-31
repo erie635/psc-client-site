@@ -1,3 +1,4 @@
+# _PSC_FAST_BOOT_PATCH applied
 # _PSC_TIMEOUT_PATCH applied
 ﻿"""
 PSC - Pulse Shopping Coin
@@ -269,6 +270,7 @@ PSC_PROXY_SERVER   = os.getenv("PSC_PROXY_SERVER", "").strip()
 PSC_PROXY_USERNAME = os.getenv("PSC_PROXY_USERNAME", "").strip()
 PSC_PROXY_PASSWORD = os.getenv("PSC_PROXY_PASSWORD", "").strip()
 _PSC_PROXY_DEAD_UNTIL = 0.0
+_PSC_FAST_BOOT = True
 
 PSC_PROXY_SERVERS  = [
     s.strip() for s in os.getenv("PSC_PROXY_SERVERS", "").split(",") if s.strip()
@@ -3336,7 +3338,16 @@ def load_products(query, allow_block=True, vendor=None):
     if not query:
         return []
 
+    global _PSC_FAST_BOOT
     cache_key = f"products::{vendor or 'all'}::{query.lower()}"
+    
+    if _PSC_FAST_BOOT and os.environ.get("RENDER"):
+        with _SCRAPE_LOCK:
+            if _PSC_FAST_BOOT:
+                _PSC_FAST_BOOT = False
+                print(f"[PSC FAST-BOOT] Skipping synchronous scrape for '{query}' to avoid timeout. Backgrounding...")
+                _background_refresh_products(query, vendor=vendor, cache_key=cache_key)
+                return _fallback_products(query)
     query_key = f"{vendor or 'all'}::{query.lower()}"
 
     cached = _cache_get(cache_key)
