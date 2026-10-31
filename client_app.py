@@ -1,4 +1,4 @@
-﻿# _PSC_TIMEOUT_PATCH applied
+# _PSC_TIMEOUT_PATCH applied
 """
 PSC - Pulse Shopping Coin
 Client-facing online shop with automatic PSC wallet creation + client registry.
@@ -1557,7 +1557,7 @@ _JUMIA_REQUESTS_BLOCK_SECONDS = 0  # Always try immediately
 
 
 def _scrape_jumia(q, headers):
-    global _JUMIA_REQUESTS_BLOCKED_UNTIL
+    global _JUMIA_REQUESTS_BLOCKED_UNTIL, _PSC_PROXY_DEAD_UNTIL
     import requests as _req
     from bs4 import BeautifulSoup as _BS
 
@@ -1615,6 +1615,9 @@ def _scrape_jumia(q, headers):
                     return products
         except Exception as e:
             print(f"Jumia requests error: {e}")
+            if "402" in str(e) or "Tunnel connection failed" in str(e) or "ProxyError" in str(e):
+                print("[PSC] Requests proxy dead (402). Bypassing proxy for 1 hour...")
+                _PSC_PROXY_DEAD_UNTIL = time.time() + 3600
             if "402" in str(e) or "Tunnel connection failed" in str(e) or "ProxyError" in str(e):
                 print("[PSC] Requests proxy dead (402). Bypassing proxy for 1 hour...")
                 _PSC_PROXY_DEAD_UNTIL = time.time() + 3600
@@ -1699,6 +1702,7 @@ def _scrape_jumia(q, headers):
 
 
 def _scrape_kilimall(q, headers):
+    global _PSC_PROXY_DEAD_UNTIL
     try:
         from playwright.sync_api import sync_playwright
         products = []
@@ -1760,6 +1764,9 @@ def _scrape_kilimall(q, headers):
         print(f"[PSC SCRAPE] Kilimall produced 0 products for '{q}'")
     except Exception as e:
         print(f"Kilimall scrape error: {e}")
+        if "ERR_TUNNEL" in str(e) or "proxy" in str(e).lower():
+            _PSC_PROXY_DEAD_UNTIL = time.time() + 3600
+            print("[PSC] Disabling proxy for 1 hour due to Kilimall tunnel error.")
     return []
 
 
