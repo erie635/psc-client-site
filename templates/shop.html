@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html>
 <head>
     <title>PSC - Pulse Shopping Coin</title>
@@ -1237,6 +1237,35 @@
 }
 </style>
 <!-- END ULTRA STRICT MOBILE HERO HEIGHT FIX -->
+
+
+<!-- DESKTOP-MATCHING SEARCH BAR FIX FOR MOBILE -->
+<style>
+@media (max-width: 768px) {
+    .search-bar {
+        flex-direction: row !important;
+        flex-wrap: nowrap !important; /* Keeps it on one line like laptop */
+        gap: 10px !important;
+        margin-bottom: 15px !important;
+    }
+    .search-bar input {
+        padding: 14px 18px !important; /* Matches laptop padding */
+        font-size: 16px !important; /* CRITICAL: Stops mobile auto-zoom */
+        border: 2px solid #e5e7eb !important;
+        border-radius: 10px !important;
+        height: auto !important;
+        flex: 1 1 auto !important;
+    }
+    .search-bar button {
+        padding: 14px 20px !important; /* Matches laptop padding */
+        font-size: 1rem !important;
+        border-radius: 10px !important;
+        width: auto !important;
+        flex: 0 0 auto !important;
+    }
+}
+</style>
+<!-- END DESKTOP-MATCHING SEARCH BAR FIX FOR MOBILE -->
 
 </head>
 <body>
@@ -3607,26 +3636,7 @@ function loadWalletChip() {
         top: 10px;
     }
 
-    /* --- 2. SEARCH BAR --- */
-    .search-bar {
-        flex-direction: row !important;
-        gap: 8px;
-        margin-bottom: 10px;
-    }
-    .search-bar input {
-        padding: 10px 12px;
-        font-size: 0.85rem;
-        flex: 1;
-        min-width: 0;
-        border-radius: 8px;
-    }
-    .search-bar button {
-        padding: 10px 15px;
-        font-size: 0.85rem;
-        flex-shrink: 0;
-        border-radius: 8px;
-        width: auto !important;
-    }
+    
 
     /* --- 3. HERO CAROUSEL (HOT DEALS) --- */
     .hero-wrap {
