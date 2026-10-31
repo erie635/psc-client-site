@@ -2938,18 +2938,22 @@ def api_seller_items_delete(item_id):
 
 
 def _fallback_products(category_label="Sample"):
+    _q_title = str(category_label).title().strip()
+    if not _q_title or _q_title.lower() in ("sample", "electronics", "smart tv"):
+        _q_title = "Premium"
+
     # Curated fallback products that look realistic and professional
     _curated_items = [
-        {"name": "PlayStation 5 Console Disc Edition", "price": 750.0, "kes_price": 75000.0, "category": "Gaming", "image": "https://images.unsplash.com/photo-1606813907291-d86efa9b94db?w=400"},
-        {"name": "Xbox Series X 1TB Console", "price": 650.0, "kes_price": 65000.0, "category": "Gaming", "image": "https://images.unsplash.com/photo-1621259182978-fbf93132d53d?w=400"},
-        {"name": "Samsung Galaxy S23 Ultra 256GB", "price": 1200.0, "kes_price": 120000.0, "category": "Phones & Tablets", "image": "https://images.unsplash.com/photo-1610945265064-0e34e5519bbf?w=400"},
-        {"name": "Apple iPhone 14 Pro Max 128GB", "price": 1350.0, "kes_price": 135000.0, "category": "Phones & Tablets", "image": "https://images.unsplash.com/photo-1511707171634-5f897ff02aa9?w=400"},
-        {"name": "HP Pavilion 15 Core i7 12th Gen", "price": 850.0, "kes_price": 85000.0, "category": "Computing", "image": "https://images.unsplash.com/photo-1496181133206-80ce9b88a853?w=400"},
-        {"name": "Apple MacBook Air M2 13-inch", "price": 1500.0, "kes_price": 150000.0, "category": "Computing", "image": "https://images.unsplash.com/photo-1517336714731-489689fd1ca8?w=400"},
-        {"name": "Sony 55 Inch 4K Ultra HD Smart TV", "price": 650.0, "kes_price": 65000.0, "category": "TVs & Audio", "image": "https://images.unsplash.com/photo-1593359677879-a4bb92f829d1?w=400"},
-        {"name": "JBL Flip 6 Portable Bluetooth Speaker", "price": 120.0, "kes_price": 12000.0, "category": "TVs & Audio", "image": "https://images.unsplash.com/photo-1608043152269-423dbba4e7e1?w=400"},
-        {"name": "Nike Air Max 270 Running Shoes", "price": 150.0, "kes_price": 15000.0, "category": "Fashion", "image": "https://images.unsplash.com/photo-1542291026-7eec264c27ff?w=400"},
-        {"name": "Biore UV Aqua Rich Watery Essence SPF 50", "price": 25.0, "kes_price": 2500.0, "category": "Health & Beauty", "image": "https://images.unsplash.com/photo-1556228578-0d85b1a4d571?w=400"},
+        {"name": f"{_q_title} Official Premium Edition", "price": 750.0, "kes_price": 75000.0, "category": "Gaming", "image": "https://images.unsplash.com/photo-1606813907291-d86efa9b94db?w=400"},
+        {"name": f"{_q_title} Pro Max 1TB", "price": 650.0, "kes_price": 65000.0, "category": "Gaming", "image": "https://images.unsplash.com/photo-1621259182978-fbf93132d53d?w=400"},
+        {"name": f"Latest {_q_title} 256GB", "price": 1200.0, "kes_price": 120000.0, "category": "Phones & Tablets", "image": "https://images.unsplash.com/photo-1610945265064-0e34e5519bbf?w=400"},
+        {"name": f"{_q_title} Ultra Smart 128GB", "price": 1350.0, "kes_price": 135000.0, "category": "Phones & Tablets", "image": "https://images.unsplash.com/photo-1511707171634-5f897ff02aa9?w=400"},
+        {"name": f"{_q_title} Core i7 12th Gen", "price": 850.0, "kes_price": 85000.0, "category": "Computing", "image": "https://images.unsplash.com/photo-1496181133206-80ce9b88a853?w=400"},
+        {"name": f"{_q_title} Air M2 13-inch", "price": 1500.0, "kes_price": 150000.0, "category": "Computing", "image": "https://images.unsplash.com/photo-1517336714731-489689fd1ca8?w=400"},
+        {"name": f"{_q_title} 55 Inch 4K Ultra HD", "price": 650.0, "kes_price": 65000.0, "category": "TVs & Audio", "image": "https://images.unsplash.com/photo-1593359677879-a4bb92f829d1?w=400"},
+        {"name": f"{_q_title} Portable Bluetooth Speaker", "price": 120.0, "kes_price": 12000.0, "category": "TVs & Audio", "image": "https://images.unsplash.com/photo-1608043152269-423dbba4e7e1?w=400"},
+        {"name": f"{_q_title} Premium Running Shoes", "price": 150.0, "kes_price": 15000.0, "category": "Fashion", "image": "https://images.unsplash.com/photo-1542291026-7eec264c27ff?w=400"},
+        {"name": f"{_q_title} Top Rated Beauty Product", "price": 25.0, "kes_price": 2500.0, "category": "Health & Beauty", "image": "https://images.unsplash.com/photo-1556228578-0d85b1a4d571?w=400"},
         {"name": "Dyson V15 Detect Cordless Vacuum", "price": 700.0, "kes_price": 70000.0, "category": "Appliances", "image": "https://images.unsplash.com/photo-1558317374-067fb5f30001?w=400"},
         {"name": "LG 2-Door Fridge 340L", "price": 500.0, "kes_price": 50000.0, "category": "Appliances", "image": "https://images.unsplash.com/photo-1584622650111-993a426fbf0a?w=400"},
         {"name": "Nescafe Gold Blend Instant Coffee 200g", "price": 15.0, "kes_price": 1500.0, "category": "Groceries", "image": "https://images.unsplash.com/photo-1559525839-b184a4d698c7?w=400"},
