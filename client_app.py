@@ -2935,8 +2935,8 @@ def _fallback_products(category_label="Sample"):
         "beauty": "https://images.unsplash.com/photo-1556228578-0d85b1a4d571?w=400",
         "shoe": "https://images.unsplash.com/photo-1542291026-7eec264c27ff?w=400",
         "grocery": "https://images.unsplash.com/photo-1542838132-92c53300491e?w=400",
-        "tools": "https://images.unsplash.com/photo-1504148455328-c37699d78e1b?w=400",
-        "default": "https://images.unsplash.com/photo-1505740420928-5e560c06d30e?w=400"
+        "tools": "https://images.unsplash.com/photo-1581244277943-fe4a9c777189?w=400",
+        "default": "https://images.unsplash.com/photo-1579546929518-9e396f3cc809?w=400"
     }
 
     base_image = _images["default"]
