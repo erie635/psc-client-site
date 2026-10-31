@@ -2947,7 +2947,8 @@ def _fallback_products(category_label="Sample"):
         base_image = _images["tools"]; category = "Tools & Hardware"
     elif any(k in q_lower for k in ["phone", "tablet", "ipad", "iphone", "samsung", "tecno"]):
         base_image = _images["phone"]; category = "Phones & Tablets"
-    elif any(k in q_lower for k in ["audio", "amplifier", "speaker", "sound", "crest"]):
+    # Force audio/speaker/crest to use the audio image
+    elif any(k in q_lower for k in ["audio", "amplifier", "speaker", "sound", "crest", "power", "adress", "public"]):
         base_image = _images["audio"]; category = "Audio & Amplifiers"
     elif any(k in q_lower for k in ["tv", "television", "screen"]):
         base_image = _images["tv"]; category = "TVs & Audio"
@@ -7909,7 +7910,7 @@ def _start_background_threads_once():
         except Exception as e:
             print(f"[PSC] disk cache load error: {e}")
         try:
-            if os.environ.get("RENDER") or os.environ.get("PSC_DISABLE_WARMER") == "1":
+            if True:  # Disabled to prevent Lock Busy errors on searches
                 print("[PSC] Render detected or warmer disabled. Skipping cache warmer to prevent OOM.")
             else:
                 threading.Thread(target=_warm_cache, daemon=True).start()
