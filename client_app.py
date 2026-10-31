@@ -2905,6 +2905,7 @@ def api_seller_items_delete(item_id):
 
 
 def _fallback_products(category_label="Sample"):
+    # Dynamic fallback that guarantees results for ANY search
     query = str(category_label or "").strip()
     q_lower = query.lower()
     _q_title = query.title() if query else "Premium"
@@ -2958,7 +2959,6 @@ def _fallback_products(category_label="Sample"):
             product["name"], product["source"], product["category"], product["kes_price"]
         )
     return products
-
 
 
 _INFLIGHT = {}
