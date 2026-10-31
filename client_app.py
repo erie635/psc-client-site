@@ -600,6 +600,36 @@ _SANCTIONS_INLINE = set(
 
 _VA_LOCK = threading.Lock()
 
+# WALLET UPGRADE LAYER VARIABLES
+WALLET_DEPOSIT_MAX_KES        = float(os.getenv("WALLET_DEPOSIT_MAX_KES", "0") or 0)
+WALLET_WITHDRAW_DAILY_MAX_KES = float(os.getenv("WALLET_WITHDRAW_DAILY_MAX_KES", "100000") or 100000)
+WALLET_TRANSFER_MIN_PSC       = float(os.getenv("WALLET_TRANSFER_MIN_PSC", "1") or 1)
+WALLET_TRANSFER_MAX_PSC       = float(os.getenv("WALLET_TRANSFER_MAX_PSC", "0") or 0)
+WALLET_TRANSFER_DAILY_MAX_PSC = float(os.getenv("WALLET_TRANSFER_DAILY_MAX_PSC", "0") or 0)
+WALLET_CARD_DEPOSIT_ENABLED   = os.getenv("WALLET_CARD_DEPOSIT_ENABLED", "1").strip() == "1"
+WALLET_BANK_DEPOSIT_ENABLED   = os.getenv("WALLET_BANK_DEPOSIT_ENABLED", "1").strip() == "1"
+WALLET_MPESA_DEPOSIT_ENABLED  = os.getenv("WALLET_MPESA_DEPOSIT_ENABLED", "1").strip() == "1"
+
+# SAVINGS VARIABLES
+WALLET_SAVINGS_ENABLED       = os.getenv("WALLET_SAVINGS_ENABLED", "1").strip() == "1"
+WALLET_SAVINGS_MIN_MOVE_PSC  = float(os.getenv("WALLET_SAVINGS_MIN_MOVE_PSC", "0.01") or 0.01)
+WALLET_SAVINGS_MIN_LEAVE_PSC = float(os.getenv("WALLET_SAVINGS_MIN_LEAVE_PSC", "1.00") or 1.00)
+
+# DEPOSIT POCKET VARIABLES
+WALLET_DEPOSIT_POCKET_ENABLED     = os.getenv("WALLET_DEPOSIT_POCKET_ENABLED", "1").strip() == "1"
+WALLET_DEPOSIT_POCKET_MIN_MOVE_PSC = float(os.getenv("WALLET_DEPOSIT_POCKET_MIN_MOVE_PSC", "0.01") or 0.01)
+WALLET_DEPOSIT_POCKET_MIN_LEAVE_PSC = float(os.getenv("WALLET_DEPOSIT_POCKET_MIN_LEAVE_PSC", "1.00") or 1.00)
+
+WALLET_OPS_FILE = os.path.join(os.path.dirname(PAYMENTS_FILE) or ".", "wallet_ledger_ops.json")
+_WALLET_OPS_LOCK = threading.Lock()
+
+WALLET_SAVINGS_OPS_FILE = os.path.join(os.path.dirname(PAYMENTS_FILE) or ".", "wallet_savings_ops.json")
+_WALLET_SAVINGS_LOCK = threading.Lock()
+
+WALLET_DEPOSIT_POCKET_OPS_FILE = os.path.join(os.path.dirname(PAYMENTS_FILE) or ".", "wallet_deposit_pocket_ops.json")
+_WALLET_DEPOSIT_POCKET_LOCK = threading.Lock()
+
+
 
 MARKUP_DEFAULT = 0.05
 
