@@ -806,6 +806,16 @@ def _register_products(products):
     for product in products:
         if not product:
             continue
+        # Fix null or empty images
+        if not product.get("image") or str(product.get("image")).strip().lower() in ("null", "none", ""):
+            cat_name = str(product.get("category", "")).lower()
+            if "phone" in cat_name: product["image"] = "https://images.unsplash.com/photo-1511707171634-5f897ff02aa9?w=400"
+            elif "tv" in cat_name: product["image"] = "https://images.unsplash.com/photo-1593359677879-a4bb92f829d1?w=400"
+            elif "laptop" in cat_name or "comput" in cat_name: product["image"] = "https://images.unsplash.com/photo-1496181133206-80ce9b88a853?w=400"
+            elif "fridge" in cat_name or "home" in cat_name: product["image"] = "https://images.unsplash.com/photo-1584622650111-993a426fbf0a?w=400"
+            elif "beauty" in cat_name or "health" in cat_name: product["image"] = "https://images.unsplash.com/photo-1556228578-0d85b1a4d571?w=400"
+            elif "shoe" in cat_name or "fashion" in cat_name: product["image"] = "https://images.unsplash.com/photo-1542291026-7eec264c27ff?w=400"
+            else: product["image"] = "https://images.unsplash.com/photo-1505740420928-5e560c06d30e?w=400"
         product["id"] = _stable_product_id(
             product.get("name", ""),
             product.get("source", ""),
@@ -2905,7 +2915,6 @@ def api_seller_items_delete(item_id):
 
 
 def _fallback_products(category_label="Sample"):
-    # Dynamic fallback that guarantees results for ANY search
     query = str(category_label or "").strip()
     q_lower = query.lower()
     _q_title = query.title() if query else "Premium"
@@ -2928,7 +2937,7 @@ def _fallback_products(category_label="Sample"):
         base_image = _images["phone"]; category = "Phones & Tablets"
     elif any(k in q_lower for k in ["tv", "audio", "speaker", "headphone"]):
         base_image = _images["tv"]; category = "TVs & Audio"
-    elif any(k in q_lower for k in ["laptop", "comput", "macbook"]):
+    elif any(k in q_lower for k in ["laptop", "comput", "macbook", "tool"]):
         base_image = _images["laptop"]; category = "Computing"
     elif any(k in q_lower for k in ["home", "kitchen", "appliance", "fridge", "cooker", "microwave"]):
         base_image = _images["fridge"]; category = "Appliances"
@@ -2940,10 +2949,11 @@ def _fallback_products(category_label="Sample"):
         base_image = _images["grocery"]; category = "Groceries"
 
     products = []
+    # Using cleaner titles instead of "Premium Edition 16"
     for i in range(20):
         products.append({
             "id": 900000 + i,
-            "name": f"{_q_title} - Premium Edition {i+1}" if _q_title else f"Premium Item {i+1}",
+            "name": f"{_q_title} - Store Pick {i+1}" if _q_title else f"Top Pick {i+1}",
             "price": 100.0 + (i * 10),
             "kes_price": 10000.0 + (i * 1000),
             "client_kes": 10500.0 + (i * 1050),
@@ -2959,6 +2969,8 @@ def _fallback_products(category_label="Sample"):
             product["name"], product["source"], product["category"], product["kes_price"]
         )
     return products
+
+
 
 
 _INFLIGHT = {}
