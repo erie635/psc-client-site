@@ -1567,7 +1567,7 @@ def _scrape_jumia(q, headers):
     if True:  # Always attempt the fast requests method first
         try:
             proxy_dict = _requests_proxy_config()
-            resp = _req.get(url, headers=headers, timeout=5, proxies=proxy_dict)
+            resp = _req.get(url, headers=headers, timeout=15, proxies=proxy_dict)
             if resp.status_code == 403:
                 _JUMIA_REQUESTS_BLOCKED_UNTIL = time.time() + _JUMIA_REQUESTS_BLOCK_SECONDS
                 print(f"[PSC SCRAPE] Jumia 403; requests path disabled for {_JUMIA_REQUESTS_BLOCK_SECONDS}s")
@@ -1652,10 +1652,10 @@ def _scrape_jumia(q, headers):
                 Object.defineProperty(navigator, 'plugins', { get: () => [1, 2, 3, 4, 5] });
                 window.chrome = { runtime: {} };
             ''')
-            try: page.goto(url, wait_until="domcontentloaded", timeout=5000)
+            try: page.goto(url, wait_until="domcontentloaded", timeout=25000)
             except Exception: pass
             page.wait_for_timeout(5000)
-            try: page.wait_for_selector("article.prd, article.-pvxs, article[data-catalog-product]", timeout=5000)
+            try: page.wait_for_selector("article.prd, article.-pvxs, article[data-catalog-product]", timeout=25000)
             except Exception: pass
             cards = page.query_selector_all("article.prd")
             if not cards: cards = page.query_selector_all("article.-pvxs")
@@ -1721,9 +1721,9 @@ def _scrape_kilimall(q, headers):
             )
             page = browser.new_page(user_agent=headers["User-Agent"])
             page.goto(f"https://www.kilimall.co.ke/search?q={quote_plus(q)}",
-                      wait_until="networkidle", timeout=5000)
+                      wait_until="networkidle", timeout=25000)
             try:
-                page.wait_for_selector("div.product-item img[src]", timeout=5000)
+                page.wait_for_selector("div.product-item img[src]", timeout=25000)
             except Exception:
                 pass
             cards = page.query_selector_all("div.product-item")[:20]
@@ -1826,7 +1826,7 @@ def _scrape_carrefour(q):
             try:
                 page.wait_for_selector(
                     "a[href*='/p/'], a[href*='/product'], article.product",
-                    timeout=5000)
+                    timeout=25000)
             except Exception:
                 pass
             cards = page.query_selector_all("a[href*='/p/']")
@@ -1924,7 +1924,7 @@ def _scrape_jiji(q, headers):
             )
             try:
                 page.goto(f"https://jiji.co.ke/search?query={quote_plus(q)}",
-                          wait_until="domcontentloaded", timeout=5000)
+                          wait_until="domcontentloaded", timeout=25000)
             except Exception:
                 pass
             page.wait_for_timeout(4000)
@@ -2036,7 +2036,7 @@ def _scrape_woocommerce(q, url_template, source_label, category, headers):
             ''')
             url = url_template.format(q=quote_plus(q))
             try:
-                page.goto(url, wait_until="domcontentloaded", timeout=5000)
+                page.goto(url, wait_until="domcontentloaded", timeout=25000)
             except Exception:
                 pass
             page.wait_for_timeout(2500)
@@ -2142,7 +2142,7 @@ def _scrape_magento(q, url_template, source_label, category, headers):
             ''')
             url = url_template.format(q=quote_plus(q))
             try:
-                page.goto(url, wait_until="domcontentloaded", timeout=5000)
+                page.goto(url, wait_until="domcontentloaded", timeout=25000)
             except Exception:
                 pass
             page.wait_for_timeout(5000)
@@ -2150,7 +2150,7 @@ def _scrape_magento(q, url_template, source_label, category, headers):
                 page.wait_for_selector(
                     "li.product-item, .product-item-info, ol.products li, "
                     ".product-item, article.product, .product-card",
-                    timeout=5000)
+                    timeout=25000)
             except Exception:
                 pass
             cards = page.query_selector_all("li.product-item")
@@ -2257,7 +2257,7 @@ def _scrape_generic_react(q, url_template, source_label, category, headers):
             ''')
             url = url_template.format(q=quote_plus(q))
             try:
-                page.goto(url, wait_until="domcontentloaded", timeout=5000)
+                page.goto(url, wait_until="domcontentloaded", timeout=25000)
             except Exception:
                 pass
             page.wait_for_timeout(4500)
@@ -3158,7 +3158,7 @@ def _scrape_google_shopping_vendor_filtered(q, headers):
                 url = ("https://www.google.com/search?tbm=shop&hl=en&gl=ke&q="
                        + quote_plus(str(q)))
                 try:
-                    page.goto(url, wait_until="domcontentloaded", timeout=5000)
+                    page.goto(url, wait_until="domcontentloaded", timeout=25000)
                 except Exception:
                     pass
                 page.wait_for_timeout(_rnd.randint(2200, 4200))
@@ -3177,7 +3177,7 @@ def _scrape_google_shopping_vendor_filtered(q, headers):
                 try:
                     page.wait_for_selector(
                         ".sh-dgr__content, .sh-dgr__grid-result, [data-docid]",
-                        timeout=5000)
+                        timeout=25000)
                 except Exception:
                     pass
 
@@ -7934,43 +7934,47 @@ def _scrape_vendors_sequential(query, vendor=None):
         "Accept-Language": "en-US,en;q=0.9",
     }
 
+    _all_res = []
     if vendor in (None, "jumia"):
         p = _scrape_jumia(q, headers)
-        if p: return p
+        if p: _all_res.extend(p)
     if vendor in (None, "kilimall"):
         p = _scrape_kilimall(q, headers)
-        if p: return p
+        if p: _all_res.extend(p)
     if vendor in (None, "carrefour"):
         p = _scrape_carrefour(q)
-        if p: return p
+        if p: _all_res.extend(p)
 
-    if vendor == "jiji":
+    if vendor in (None, "jiji"):
         p = _scrape_jiji(q, headers)
-        if p: return p
-    if vendor == "fahavi":
+        if p: _all_res.extend(p)
+    if vendor in (None, "fahavi"):
         p = _scrape_fahavi(q, headers)
-        if p: return p
-    if vendor == "textbookcentre":
+        if p: _all_res.extend(p)
+    if vendor in (None, "textbookcentre"):
         p = _scrape_textbookcentre(q, headers)
-        if p: return p
-    if vendor == "naivas":
+        if p: _all_res.extend(p)
+    if vendor in (None, "naivas"):
         p = _scrape_naivas(q, headers)
-        if p: return p
-    if vendor == "vivo":
+        if p: _all_res.extend(p)
+    if vendor in (None, "vivo"):
         p = _scrape_vivo(q, headers)
-        if p: return p
-    if vendor == "copell":
+        if p: _all_res.extend(p)
+    if vendor in (None, "copell"):
         p = _scrape_copell(q, headers)
-        if p: return p
-    if vendor == "masoko":
+        if p: _all_res.extend(p)
+    if vendor in (None, "masoko"):
         p = _scrape_masoko(q, headers)
-        if p: return p
-    if vendor == "hotpoint":
+        if p: _all_res.extend(p)
+    if vendor in (None, "hotpoint"):
         p = _scrape_hotpoint(q, headers)
-        if p: return p
-    if vendor == "samsungstore":
+        if p: _all_res.extend(p)
+    if vendor in (None, "samsungstore"):
         p = _scrape_samsungstore(q, headers)
-        if p: return p
+        if p: _all_res.extend(p)
+
+    if _all_res:
+        return _all_res
 
     try:
         with open("products.json", "r") as f:
