@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html>
 <head>
     <title>PSC - Pulse Shopping Coin</title>
@@ -3512,14 +3512,26 @@ function loadWalletChip() {
         flex-direction: column;
         gap: 8px;
     }
+
+    /* PSC MOBILE WALLET: horizontal responsive grid */
     .wallet-chip {
-        width: 100%;
-        padding: 8px;
-        font-size: 0.75rem;
-        flex-direction: column;
-        gap: 5px;
-        border-radius: 12px;
+        display: grid !important;
+        grid-template-columns: repeat(6, minmax(0, 1fr)) !important;
+        grid-template-rows: auto auto auto !important;
+        width: 100% !important;
+        min-width: 0 !important;
+        box-sizing: border-box !important;
+        flex-direction: unset !important;
+        flex-wrap: unset !important;
+        justify-content: stretch !important;
+        align-items: center !important;
+        gap: 9px 4px !important;
+        padding: 12px 8px !important;
+        font-size: 0.72rem !important;
+        text-align: center !important;
+        border-radius: 14px !important;
     }
+
     .wallet-chip button {
         margin: 3px 2px !important;
         padding: 4px 10px;
@@ -3705,6 +3717,56 @@ function loadWalletChip() {
     /* General typography fixes */
     .row-section h2 { font-size: 1.1rem; }
     .see-all { font-size: 0.8rem !important; }
+
+    /* Wallet address gets its own row */
+    .wallet-chip #walletShort {
+        grid-column: 1 / -1 !important;
+        width: 100% !important;
+        text-align: center !important;
+        font-size: 0.9rem !important;
+        min-width: 0 !important;
+        overflow-wrap: anywhere !important;
+    }
+
+    /* Hide the green status dot and vertical separators */
+    .wallet-chip > .live-dot,
+    .wallet-chip > span[style*="opacity"] {
+        display: none !important;
+    }
+
+    /* Three balances share one horizontal row */
+    .wallet-chip #bonusShort,
+    .wallet-chip #purchasedShort,
+    .wallet-chip #dailyBonusShort {
+        grid-column: span 2 !important;
+        display: block !important;
+        min-width: 0 !important;
+        width: 100% !important;
+        text-align: center !important;
+        font-size: 0.66rem !important;
+        line-height: 1.4 !important;
+        overflow-wrap: anywhere !important;
+    }
+
+    /* Action buttons share the bottom row */
+    .wallet-chip #redeemDailyBtn {
+        grid-column: 1 / span 3 !important;
+    }
+
+    .wallet-chip #buyPscBtn {
+        grid-column: 4 / span 3 !important;
+    }
+
+    .wallet-chip button {
+        width: 100% !important;
+        min-width: 0 !important;
+        margin: 0 !important;
+        padding: 9px 3px !important;
+        font-size: 0.78rem !important;
+        border-radius: 10px !important;
+        box-sizing: border-box !important;
+    }
+
 }
 </style>
 <!-- END MOBILE CLEAN UI PATCH -->
