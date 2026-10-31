@@ -570,6 +570,64 @@ PAYMENTS_FILE         = os.path.join(BASE_DIR, "payments.json")
 WITHDRAWAL_QUEUE_FILE = os.path.join(BASE_DIR, "withdrawal_queue.json")
 PAYOUT_AUDIT_FILE     = os.path.join(BASE_DIR, "payout_audit.json")
 
+
+# KYC + PAYOUT COMPLIANCE (no gateways)
+KYC_REQUIRED             = os.getenv("KYC_REQUIRED", "1").strip() == "1"
+KYC_ALLOWED_ID_TYPES     = [x.strip().lower() for x in
+                            os.getenv("KYC_ALLOWED_ID_TYPES",
+                                      "national_id,passport,drivers_license,huduma_namba,bvn,nin").split(",")
+                            if x.strip()]
+KYC_MIN_AGE              = int(os.getenv("KYC_MIN_AGE", "18") or 18)
+
+PAYOUT_VELOCITY_MAX_PER_WEEK = int(os.getenv("PAYOUT_VELOCITY_MAX_PER_WEEK", "10") or 10)
+PAYOUT_VELOCITY_MAX_PER_DAY  = int(os.getenv("PAYOUT_VELOCITY_MAX_PER_DAY", "3") or 3)
+
+CBK_REPORT_THRESHOLD_KES = float(os.getenv("CBK_REPORT_THRESHOLD_KES", "1000000") or 1000000)
+KRA_WHT_THRESHOLD_KES    = float(os.getenv("KRA_WHT_THRESHOLD_KES", "24000") or 24000)
+
+VA_DIR = os.path.dirname(CLIENTS_FILE) or "."
+KYC_FILE             = os.path.join(VA_DIR, "kyc_records.json")
+COMPLIANCE_FILE      = os.path.join(VA_DIR, "compliance_flags.json")
+VELOCITY_FILE        = os.path.join(VA_DIR, "payout_velocity.json")
+CBK_REPORT_FILE      = os.path.join(VA_DIR, "cbk_reports.json")
+SANCTIONS_FILE       = os.path.join(VA_DIR, "sanctions_blocklist.txt")
+
+_SANCTIONS_INLINE = set(
+    x.strip().lower() for x in
+    os.getenv("SANCTIONS_BLOCKLIST", "").split(",") if x.strip()
+)
+
+_VA_LOCK = threading.Lock()
+
+# WALLET UPGRADE LAYER VARIABLES
+WALLET_DEPOSIT_MAX_KES        = float(os.getenv("WALLET_DEPOSIT_MAX_KES", "0") or 0)
+WALLET_WITHDRAW_DAILY_MAX_KES = float(os.getenv("WALLET_WITHDRAW_DAILY_MAX_KES", "100000") or 100000)
+WALLET_TRANSFER_MIN_PSC       = float(os.getenv("WALLET_TRANSFER_MIN_PSC", "1") or 1)
+WALLET_TRANSFER_MAX_PSC       = float(os.getenv("WALLET_TRANSFER_MAX_PSC", "0") or 0)
+WALLET_TRANSFER_DAILY_MAX_PSC = float(os.getenv("WALLET_TRANSFER_DAILY_MAX_PSC", "0") or 0)
+WALLET_CARD_DEPOSIT_ENABLED   = os.getenv("WALLET_CARD_DEPOSIT_ENABLED", "1").strip() == "1"
+WALLET_BANK_DEPOSIT_ENABLED   = os.getenv("WALLET_BANK_DEPOSIT_ENABLED", "1").strip() == "1"
+WALLET_MPESA_DEPOSIT_ENABLED  = os.getenv("WALLET_MPESA_DEPOSIT_ENABLED", "1").strip() == "1"
+
+# SAVINGS VARIABLES
+WALLET_SAVINGS_ENABLED       = os.getenv("WALLET_SAVINGS_ENABLED", "1").strip() == "1"
+WALLET_SAVINGS_MIN_MOVE_PSC  = float(os.getenv("WALLET_SAVINGS_MIN_MOVE_PSC", "0.01") or 0.01)
+WALLET_SAVINGS_MIN_LEAVE_PSC = float(os.getenv("WALLET_SAVINGS_MIN_LEAVE_PSC", "1.00") or 1.00)
+
+# DEPOSIT POCKET VARIABLES
+WALLET_DEPOSIT_POCKET_ENABLED     = os.getenv("WALLET_DEPOSIT_POCKET_ENABLED", "1").strip() == "1"
+WALLET_DEPOSIT_POCKET_MIN_MOVE_PSC = float(os.getenv("WALLET_DEPOSIT_POCKET_MIN_MOVE_PSC", "0.01") or 0.01)
+WALLET_DEPOSIT_POCKET_MIN_LEAVE_PSC = float(os.getenv("WALLET_DEPOSIT_POCKET_MIN_LEAVE_PSC", "1.00") or 1.00)
+
+WALLET_OPS_FILE = os.path.join(os.path.dirname(PAYMENTS_FILE) or ".", "wallet_ledger_ops.json")
+_WALLET_OPS_LOCK = threading.Lock()
+
+WALLET_SAVINGS_OPS_FILE = os.path.join(os.path.dirname(PAYMENTS_FILE) or ".", "wallet_savings_ops.json")
+_WALLET_SAVINGS_LOCK = threading.Lock()
+
+WALLET_DEPOSIT_POCKET_OPS_FILE = os.path.join(os.path.dirname(PAYMENTS_FILE) or ".", "wallet_deposit_pocket_ops.json")
+_WALLET_DEPOSIT_POCKET_LOCK = threading.Lock()
+
 MARKUP_DEFAULT = 0.05
 
 CATEGORY_MARKUPS = {
