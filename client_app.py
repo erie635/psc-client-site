@@ -267,6 +267,8 @@ def _jitter(base_ms, spread_ms=2000):
 PSC_PROXY_SERVER   = os.getenv("PSC_PROXY_SERVER", "").strip()
 PSC_PROXY_USERNAME = os.getenv("PSC_PROXY_USERNAME", "").strip()
 PSC_PROXY_PASSWORD = os.getenv("PSC_PROXY_PASSWORD", "").strip()
+_PSC_PROXY_DEAD_UNTIL = 0.0
+
 PSC_PROXY_SERVERS  = [
     s.strip() for s in os.getenv("PSC_PROXY_SERVERS", "").split(",") if s.strip()
 ]
@@ -274,6 +276,9 @@ PSC_PROXY_SERVERS  = [
 
 
 def _requests_proxy_config():
+    global _PSC_PROXY_DEAD_UNTIL
+    if time.time() < _PSC_PROXY_DEAD_UNTIL:
+        return None
     server = ""
     if PSC_PROXY_SERVERS:
         server = random.choice(PSC_PROXY_SERVERS)
@@ -292,6 +297,9 @@ def _requests_proxy_config():
     return {"http": server, "https": server}
 
 def _playwright_proxy_config():
+    global _PSC_PROXY_DEAD_UNTIL
+    if time.time() < _PSC_PROXY_DEAD_UNTIL:
+        return None
     server = ""
     if PSC_PROXY_SERVERS:
         server = random.choice(PSC_PROXY_SERVERS)
@@ -387,6 +395,7 @@ def _wait_for_cloudflare_clear(page, max_seconds=25):
 
 
 def _launch_browser(p):
+    global _PSC_PROXY_DEAD_UNTIL
     kwargs = {
         "headless": True,
         "args": [
@@ -414,7 +423,15 @@ def _launch_browser(p):
     proxy_cfg = _playwright_proxy_config()
     if proxy_cfg:
         kwargs["proxy"] = proxy_cfg
-    return p.chromium.launch(**kwargs)
+    try:
+        return p.chromium.launch(**kwargs)
+    except Exception as e:
+        if "proxy" in kwargs and ("ERR_TUNNEL_CONNECTION_FAILED" in str(e) or "402" in str(e) or "Proxy" in str(e)):
+            print("[PSC] Playwright proxy failed. Retrying WITHOUT proxy for 1 hour...")
+            _PSC_PROXY_DEAD_UNTIL = time.time() + 3600
+            kwargs.pop("proxy", None)
+            return p.chromium.launch(**kwargs)
+        raise
 
 
 def _scrape_recently_done(query_key):
@@ -1597,6 +1614,9 @@ def _scrape_jumia(q, headers):
                     return products
         except Exception as e:
             print(f"Jumia requests error: {e}")
+            if "402" in str(e) or "Tunnel connection failed" in str(e) or "ProxyError" in str(e):
+                print("[PSC] Requests proxy dead (402). Bypassing proxy for 1 hour...")
+                _PSC_PROXY_DEAD_UNTIL = time.time() + 3600
 
     try:
         from playwright.sync_api import sync_playwright
